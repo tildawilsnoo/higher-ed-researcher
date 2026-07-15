@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<!-- saved from url=(0030)https://dibi-intake.pages.dev/ -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<title>DIBI Researcher Intake</title>
+<style>
+  :root{
+    --paper:#FAFAF7;
+    --ink:#17140F;
+    --red:#C8102E;
+    --rule:#DEDACF;
+    --rule-dark:#B9B3A4;
+    --muted:#6E6A5F;
+    --card:#FFFFFF;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+  .wrap{max-width:760px;margin:0 auto;padding:36px 20px 80px;}
+
+  .masthead{display:flex;align-items:baseline;justify-content:space-between;
+    border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:6px;}
+  .masthead h1{font-family:Georgia,"Iowan Old Style","Times New Roman",serif;
+    font-size:22px;font-weight:700;letter-spacing:0.2px;margin:0;}
+  .masthead .tag{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:11px;color:var(--red);letter-spacing:0.06em;}
+  .subhead{font-size:13px;color:var(--muted);margin:0 0 28px;}
+
+  .panel{background:var(--card);border:1px solid var(--rule-dark);position:relative;padding:22px 24px;margin-bottom:22px;}
+  .panel::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--red);}
+
+  .field-row{margin-bottom:14px;}
+  .field-row label{display:block;font-size:11px;font-weight:600;letter-spacing:0.05em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:5px;}
+  .field-row input[type=text], .field-row textarea{
+    width:100%;border:1px solid var(--rule-dark);background:#fff;padding:8px 10px;
+    font-size:14px;font-family:inherit;color:var(--ink);}
+  .field-row input:focus, .field-row textarea:focus{outline:2px solid var(--red);outline-offset:-1px;}
+
+  .mode-toggle{display:flex;gap:0;margin-bottom:16px;border:1px solid var(--rule-dark);width:fit-content;}
+  .mode-toggle button{border:none;background:#fff;padding:8px 16px;font-size:13px;cursor:pointer;
+    font-family:inherit;color:var(--muted);}
+  .mode-toggle button.active{background:var(--ink);color:#fff;}
+  .mode-toggle button:not(:last-child){border-right:1px solid var(--rule-dark);}
+
+  .run-row{display:flex;gap:10px;align-items:flex-end;}
+  .run-btn{background:var(--red);color:#fff;border:none;padding:10px 22px;font-size:14px;
+    font-weight:600;cursor:pointer;letter-spacing:0.02em;white-space:nowrap;}
+  .run-btn:disabled{background:#C9A5AC;cursor:default;}
+  .run-btn:hover:not(:disabled){background:#a80d26;}
+
+  .status{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;
+    color:var(--muted);margin-top:12px;min-height:16px;}
+  .status.err{color:var(--red);}
+
+  .record{display:none;}
+  .record.show{display:block;}
+  .record-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;
+    color:var(--muted);letter-spacing:0.05em;margin-bottom:14px;}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px;}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px;}
+
+  .chip-group{display:flex;flex-wrap:wrap;gap:6px;}
+  .chip{border:1px solid var(--rule-dark);background:#fff;padding:5px 11px;font-size:12.5px;
+    cursor:pointer;border-radius:2px;user-select:none;color:var(--ink);}
+  .chip.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .chip.pillar.on{background:var(--red);border-color:var(--red);}
+
+  .tagchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--rule-dark);
+    background:#fff;padding:4px 4px 4px 10px;font-size:12.5px;margin:0 6px 6px 0;border-radius:2px;}
+  .tagchip button{border:none;background:none;color:var(--muted);cursor:pointer;font-size:14px;
+    line-height:1;padding:2px 6px;}
+  .tagchip button:hover{color:var(--red);}
+  .addtag-input{border:1px dashed var(--rule-dark);background:#fff;padding:5px 10px;font-size:12.5px;
+    width:160px;}
+
+  .sources{font-size:12px;color:var(--muted);line-height:1.6;}
+  .sources a{color:var(--ink);text-decoration:underline;}
+
+  .actions{display:flex;gap:10px;margin-top:22px;border-top:1px solid var(--rule);padding-top:18px;}
+  .actions button{border:1px solid var(--ink);background:#fff;color:var(--ink);
+    padding:9px 16px;font-size:13px;font-family:inherit;cursor:pointer;}
+  .actions button:hover{background:var(--ink);color:#fff;}
+  .actions .copied{color:var(--red);font-size:12px;margin-left:2px;align-self:center;}
+
+  h3.section{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);
+    margin:18px 0 8px;font-weight:600;}
+  .spinner{display:inline-block;width:10px;height:10px;border:2px solid var(--rule-dark);
+    border-top-color:var(--red);border-radius:50%;animation:spin 0.7s linear infinite;margin-right:6px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <h1>Researcher Intake</h1>
+    <span class="tag">DIBI · FACULTY DATABASE</span>
+  </div>
+  <p class="subhead">Enter a name and university, or paste a bio link. It researches the person and drafts a record ready to drop into the database.</p>
+
+  <div class="panel">
+    <div class="mode-toggle">
+      <button id="modeNameBtn" class="active">Name + university</button>
+      <button id="modeLinkBtn">Bio link</button>
+    </div>
+
+    <div id="modeName">
+      <div class="grid2">
+        <div class="field-row">
+          <label>Name</label>
+          <input type="text" id="inName" placeholder="e.g. Jane Ostrowski">
+        </div>
+        <div class="field-row">
+          <label>University</label>
+          <input type="text" id="inUni" placeholder="e.g. Purdue University">
+        </div>
+      </div>
+    </div>
+    <div id="modeLink" style="display:none;">
+      <div class="field-row">
+        <label>Bio link</label>
+        <input type="text" id="inLink" placeholder="https://engineering.university.edu/people/...">
+      </div>
+    </div>
+
+    <div class="run-row">
+      <button class="run-btn" id="runBtn">Research</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="panel record" id="record">
+    <div class="record-id" id="recordId"></div>
+
+    <div class="grid2">
+      <div class="field-row"><label>Name</label><input type="text" id="fName"></div>
+      <div class="field-row"><label>University</label><input type="text" id="fUni"></div>
+    </div>
+    <div class="field-row"><label>Title</label><input type="text" id="fTitle"></div>
+    <div class="grid2">
+      <div class="field-row"><label>Email</label><input type="text" id="fEmail"></div>
+      <div class="field-row"><label>Phone number</label><input type="text" id="fPhone"></div>
+    </div>
+    <div class="grid3">
+      <div class="field-row"><label>City</label><input type="text" id="fCity"></div>
+      <div class="field-row"><label>State</label><input type="text" id="fState"></div>
+      <div class="field-row"><label>Country</label><input type="text" id="fCountry"></div>
+    </div>
+    <div class="field-row"><label>Bio link</label><input type="text" id="fBioLink"></div>
+
+    <h3 class="section">Expertise categories</h3>
+    <div class="chip-group" id="catChips"></div>
+
+    <h3 class="section">DIBI pillar</h3>
+    <div class="chip-group" id="pillarChips"></div>
+
+    <h3 class="section">Key terms</h3>
+    <div id="keyTermsWrap"></div>
+    <input type="text" class="addtag-input" id="addKeyTerm" placeholder="+ add term, press Enter">
+
+    <h3 class="section">Self-identified expertise areas <span style="font-weight:400;text-transform:none;color:var(--muted);">(manual only)</span></h3>
+    <div id="selfIdWrap"></div>
+    <input type="text" class="addtag-input" id="addSelfId" placeholder="+ add area, press Enter">
+
+    <h3 class="section">Location-based research in</h3>
+    <div id="locationWrap"></div>
+    <input type="text" class="addtag-input" id="addLocation" placeholder="+ add place, press Enter">
+
+    <h3 class="section">Other tags <span style="font-weight:400;text-transform:none;color:var(--muted);">(manual only — internal DIBI tags, e.g. event attendance)</span></h3>
+    <div id="otherTagsWrap"></div>
+    <input type="text" class="addtag-input" id="addOtherTag" placeholder="+ add tag, press Enter">
+
+    <div id="sourcesBlock" style="display:none;">
+      <h3 class="section">Sources consulted</h3>
+      <div class="sources" id="sourcesList"></div>
+    </div>
+
+    <div class="actions">
+      <button id="copyBtn">Copy CSV row</button>
+      <button id="downloadBtn">Download CSV row</button>
+      <span class="copied" id="copiedMsg"></span>
+    </div>
+  </div>
+
+  <div class="panel record" id="airtablePanel">
+    <h3 class="section" style="margin-top:0;">Send to Airtable</h3>
+    <div id="atConnectedNote" style="display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 12px;">
+      Connected to your DIBI base — review the record above, then confirm.
+    </div>
+    <div id="atNotConfigured" style="display:none;font-size:12.5px;color:var(--muted);margin-bottom:12px;">
+      Not connected yet. Browsers can't call Airtable's API directly (Airtable blocks cross-origin requests), so this needs a small proxy in between. See <code>dibi-worker.js</code> for a 5-minute, no-code-experience-required setup on Cloudflare's free tier — then paste the resulting URL into <code>WORKER_BASE_URL</code> near the top of this file's script.
+    </div>
+    <div class="run-row">
+      <button class="run-btn" id="atSendBtn">Add to Airtable</button>
+    </div>
+    <div class="status" id="atStatus"></div>
+  </div>
+
+</div>
+
+<script>
+// Both the AI research call and the Airtable save go through your Cloudflare
+// Worker, which holds your Anthropic key and Airtable token server-side.
+// Nobody using this page — including you — ever sees either secret here.
+// Set this to your worker's URL (see dibi-worker.js for setup).
+const WORKER_BASE_URL = "https://dibi-airtable-proxy.hec-dash.workers.dev";
+
+// Safety net: expand common abbreviations in case the model slips one in,
+// even though the prompt asks for full names.
+const US_STATE_NAMES = {
+  AL:"Alabama",AK:"Alaska",AZ:"Arizona",AR:"Arkansas",CA:"California",CO:"Colorado",
+  CT:"Connecticut",DE:"Delaware",FL:"Florida",GA:"Georgia",HI:"Hawaii",ID:"Idaho",
+  IL:"Illinois",IN:"Indiana",IA:"Iowa",KS:"Kansas",KY:"Kentucky",LA:"Louisiana",
+  ME:"Maine",MD:"Maryland",MA:"Massachusetts",MI:"Michigan",MN:"Minnesota",
+  MS:"Mississippi",MO:"Missouri",MT:"Montana",NE:"Nebraska",NV:"Nevada",
+  NH:"New Hampshire",NJ:"New Jersey",NM:"New Mexico",NY:"New York",
+  NC:"North Carolina",ND:"North Dakota",OH:"Ohio",OK:"Oklahoma",OR:"Oregon",
+  PA:"Pennsylvania",RI:"Rhode Island",SC:"South Carolina",SD:"South Dakota",
+  TN:"Tennessee",TX:"Texas",UT:"Utah",VT:"Vermont",VA:"Virginia",WA:"Washington",
+  WV:"West Virginia",WI:"Wisconsin",WY:"Wyoming",DC:"District of Columbia"
+};
+function normalizeStateCountry(value, kind){
+  if(!value) return value;
+  const trimmed = value.trim();
+  if(kind === "state"){
+    const full = US_STATE_NAMES[trimmed.toUpperCase()];
+    if(full) return full;
+  } else if(kind === "country"){
+    if(/^(USA|US|U\.S\.|U\.S\.A\.)$/i.test(trimmed)) return "United States";
+  }
+  return trimmed;
+}
+
+const CATEGORIES = [
+  "AI & Machine Learning","Academic & Research Leadership","Advanced Manufacturing",
+  "Biotechnology & Biomedical AI","Cognitive & Behavioral Science","Communication & Network Systems",
+  "Criminal Justice & Public Policy","Data Analytics & Visualization","Economic & Regional Development",
+  "Energy & Sustainability","Extended & Virtual Reality (XR)","Human-Technology Interaction",
+  "Innovation & Commercialization","Law, Policy & Ethics","Materials Science & Engineering",
+  "Micro/Nano Systems","National Security & Defense Tech","Semiconductors",
+  "Simulation & Decision Science","Soft & Flexible Robotics","Supply Chain Systems",
+  "Workforce Innovation & Education"
+];
+const PILLARS = [
+  "Manufacturing Innovation","Supply Chain Resilience","Workforce Readiness",
+  "Capital Activation","Procurement Agility"
+];
+// exact 19-column header/order of the master CSV. Ignored fields stay blank.
+const COLUMNS = ["Name","Title","email","University","expertise categories","dibi pillar",
+  "bio link","key terms","other tags","city","State","country","Location based research in",
+  "self identified expertise areas","phone number","may 9 comment","bio link button","uni link",
+  "Name (from uni link)"];
+const EXISTING_KEY_TERMS = ["21st-century literature", "3D-printed insoles", "AGARA (Agriculture Advanced Research and Development Authority)", "AI and visualization", "Abstract algebra", "Academic Deans", "Academic Program Innovation", "Academic leadership", "Academic partnerships", "Academy administration", "Additive manufacturing qualification", "Aerospace systems", "Air Force Research", "Amazon", "Anna University", "Applied sciences education", "Area Editor Operations Research journal", "Army materials research", "Artificial gravity", "Automated Freight Systems", "Basic research", "Basic science faculty administration", "Behavioral science", "Biochemical mechanisms", "Biodiversity management", "Biomedical applications", "Biopolymers", "Bowen School of Construction", "Brain-computer interfaces", "Brain-machine interfaces", "Building operations training", "Business Law", "Business education", "Business law", "Business scaling", "Business strategy", "Business-engineering collaboration", "CAD and design tools", "Cadet Mentorship", "Cadet education", "Capitol Hill experience", "Carbon emissions", "Career preparation", "Cast aluminum alloys", "Causal inference", "Cell ontology", "Center development", "Center for Research Innovation (CRI)", "Central Gulf Industrial Alliance", "Change management", "Channel characterization", "Charitable funding", "Chief of staff operations", "Civil and environmental engineering", "Climate Control Systems", "Climate adaptation", "Coast Guard leadership", "Coastal ecology", "Coastal hazards", "Cognitive learning", "Combustion", "Commercial fisheries", "Community-based research", "Complex systems", "Compliance", "Composite connections", "Composite floor systems", "Computational Science", "Computer-based simulation", "Concept development", "Conflict resolution and management", "Connected and automated vehicles", "Construction benchmarking", "Construction planning", "Consulting services", "Consumer psychology", "Contact-transfer printing", "Continuing education", "Corporate engagement", "Corporate law", "Cost engineering", "Cost modeling", "Creative problem-solving", "Creative technology", "Credit markets", "Crystallographic texture", "Cultural studies", "Dashboard design", "Data exchange standards", "Decision support systems", "Deep foundations", "Defense and Security Partnerships", "Defense funding", "Department Head", "Department Oversight", "Dependency Analysis", "Dermatological imaging", "Design strategy", "Digital transformation of manufacturing", "Disaster studies", "Dispute Resolution", "Division Management", "EV battery protection", "Earth sciences", "Editorial operations", "Educational opportunity access", "Educational technology", "Electrochemical energy storage", "Electromagnetic fields and waves", "Electromyography", "Email-based analysis", "Emergency management", "Emotional labor", "Employer relations", "Endowment Management", "Energy conservation", "Energy diversity metrics", "Energy policy", "Engineering management", "Escape room design", "External Relations", "Facilities project coordination", "Fatigue and fracture mechanics", "Feature extraction", "Feature writing", "Federal grants management", "Federal research funding", "First-year seminar programs", "First-year writing", "Flight test engineering", "Food science applications", "Foreign exchange markets", "Future of work", "GNC systems", "Game evaluation", "Game simulation", "Gearbox systems", "Gender diversity in research", "Genome interpretation", "Geometric dimensioning and tolerancing", "Geophysics", "Gesture recognition", "Government and industry collaboration", "Government transportation programs", "Graduate business education", "Graduate mathematics", "Graduate student mentoring", "Graduate student mentorship", "Green engineering", "Gulf Coast ecology", "Hashtag activism", "Health systems", "Healthcare", "Healthcare logistics", "Hess Corporation", "Heterogeneous materials integration", "Higher Education Administration", "Highly Cited Researcher", "Hospitality Technology", "Housing authority policy", "Human action recognition", "Human-AI interaction", "Hurricane reconstruction", "Hydronic systems", "Hypersonic Flight", "Hypersonic Flight Test Bed", "IEEE 802.15 Terahertz Standards", "IFRC collaboration", "ISS systems engineering", "IT services management", "Image processing", "Immersive experiences", "In-situ monitoring", "Incident command", "Innovation management", "Institute leadership", "Institutional advancement", "Institutional leadership", "Institutional strategic planning", "Insurgency", "Integrated sensing systems", "Intellectual Property Management", "Intellectual capital", "Intellectual property management", "Interactive interfaces", "Interactive prototypes", "Interdisciplinary Research", "Interior policy", "International energy affairs", "Intersection theory", "Iteration and Testing", "Julia sets", "Just transition", "Justice-oriented research", "K-12 education", "Lab-on-chip systems", "Laser beam cutting", "Laser profilometry", "Legislative advocacy", "Lithography systems", "Living cell nanomechanical properties", "MIMO systems", "Machine learning in operations", "Magazine editing", "Magnetic materials", "Mangrove ecosystems", "Marine conservation", "Marine environment", "Maritime commerce regulation", "Maritime transportation", "Market Entry Strategy", "Marketing", "Marketing technology", "Material Characterization", "Material Extrusion", "Medical imaging", "Medical product supply chain security", "Microstructural evolution", "Military intelligence", "Missile impact loading", "Mobility management", "Moduli spaces of curves", "Mortgage lending", "Motion analysis", "Multi-million Dollar Projects", "Multifunctional Components", "NSF-funded research", "National Science Foundation CAREER Award", "National Security and Strategy", "National security studies", "Naval architecture consulting", "Naval ship design", "Neural tissue mechanics", "Neuromorphic computing", "New York history", "Non-traditional materials integration", "Nondestructive evaluation", "Ocean research", "Ocean-going vessel training", "Off-Road Vehicles", "Online communication networks", "Online friendship networks", "Organizational communication", "Organizational growth initiatives", "Organizational network analysis", "Organizational processes", "Orientation programs", "PDM systems", "Partner relationship development", "Philanthropy", "Policy consulting", "Policy development", "Port operations", "Portfolio development", "Potassium batteries", "Powder bed fusion", "Precision healthcare", "Presentation coordination", "Problem Formulation", "Process assessment", "Professional and technical services research", "Public interest law", "Public media partnerships", "Purdue Digital Enterprise Center", "Purdue Policy Research Institute", "Quadra-Drive", "Quality Control", "Quality assurance", "Quality control", "Real estate brokerage", "Real estate leasing", "Rebranding", "Regiment of Cadets", "Relationship management", "Research Leadership", "Research Mentoring", "Research integrity and compliance", "Research program management", "Rhetorical Analysis", "Risk management", "Roll-to-roll manufacturing", "STEM education", "STEM education through games", "Sailing Instruction", "Scheduling", "Science and technology policy", "Science diplomacy", "Science-policy interface", "Sea-level change", "Seacor Holdings", "Sensor networks", "Serious games", "Simulation environments", "Simulation modeling", "Small business development", "Smart infrastructure solutions", "Solid mechanics", "Spectrum analysis", "Spectrum sharing", "Speculative film", "Spinout and technology commercialization", "Startup acceleration", "Storytelling for social change", "Student Demographics", "Student experience design", "Substance abuse treatment", "Supply chain risk management", "Supply chain security", "Supply management", "Sustainability coordination", "Sustainability of transportation systems", "Sustainable energy", "Talent recruitment", "Technical maintenance", "Technology transformation", "Thermoelectric materials", "Time-optimal control", "Tissue healing simulation", "Total joint arthroplasty", "Track shape measurement", "Transcranial direct current stimulation (tDCS)", "Transportation Economics", "Transportation planning", "Transportation policy", "Transportation systems planning", "Travel efficiency strategies", "Tunable filters", "Turkey", "Turkish foreign policy", "U.S. Navy", "USAF", "Ultrasound-assisted photopolymerization", "University Distinguished Professor", "University Leadership", "University administration", "Usability", "User interface design for building systems", "Vehicle data analytics", "Venture Development", "Vessel management", "Veteran transition programs", "Vibrations", "Violence against women", "Viscoelastic properties", "Visualization evaluation", "Waterway Transportation", "Wearable electronics", "Weather balloon systems", "Weather science", "Wireless local area networks", "Work-integrated learning", "World War II history", "World literature in English", "advanced composites", "architected materials", "damage mechanics", "defense materials research", "electricity market design", "electromechanical maintenance", "federal research funding", "frictional mechanical metamaterials", "funding landscape analysis", "geophysics", "government-industry collaboration", "innovation policy", "innovation strategy", "interdisciplinary research", "machine learning", "multifunctional materials", "navigation systems", "nondestructive testing", "operations research", "precision landing systems", "research consulting", "science funding", "simulation modeling", "state estimation", "systems theory", "technical outreach", "vocational education"];
+const EXISTING_SELF_ID_AREAS = ["3D printing", "AI", "AI training and education", "AI-driven biomedical modeling", "AR and VR technologies", "Academic Faculty Administration", "Additive manufacturing", "Advanced composites", "Advanced manufacturing", "Advanced materials", "Algebraic Geometry Research", "Biotechnology  Research", "Blockchain in supply chain", "Cold Spray technology", "Cold spray training", "Commerce and economic development", "Communications Engineering", "Correctional System Research", "Data Learning", "Data flow in hiring/talent management", "Data visualization", "Educational technology", "Entrepreneurship", "Flexible electronics", "Human-AI collaboration", "Human-computer interaction", "Human-environment interaction", "Innovation Management", "Innovation leadership", "IoT", "Labor economics", "Life-cycle assessment", "Machine Learning", "Magnetic Materials Engineering", "Marketing analytics", "Material manufacturing", "Materials engineering", "Microelectromechanical Systems Engineering", "NLP", "National security", "Network Communication Science", "Neurorehabilitation Technology", "Organizational Behavior", "P2P partnerships", "Property Law Economics", "Proposal development", "RF technologies", "Research", "Research Development Strategy", "Research commercialization", "Semiconductor manufacturing", "Simulation", "Social Network Analysis", "Statistical Data Science", "Strategic employer engagement", "Structural resilience", "Supply chain analysis", "Supply chains", "Sustainable manufacturing", "Team networks", "Tele-manufacturing", "Workplace conflict", "XR technologies", "additive manufacturing", "advanced manufacturing", "automation", "blockchain", "chip development", "collaboration", "commercialization strategy", "composite systems", "computational thinking", "cooperative education leadership.", "coordination", "data analytics", "decision-making", "digital transformation", "diversity", "earthquake engineering", "electronic skin", "energy storage", "environmental engineering", "financial resilience", "fracture and fatigue", "funding strategies", "industrial robotics", "innovation", "innovation ecosystems", "innovation policy", "innovation support", "interdisciplinary research", "lean systems", "life-cycle assessment", "manufacturing", "methodology", "nanomanufacturing", "nanotechnology", "network science", "non-degree credentials", "operations", "outreach", "performance measurement", "polymer mechanics", "public health", "regional development", "remote maintenance", "robotics", "sensors", "strategic management", "strategic materials", "supply chain", "sustainability", "systems biology", "tech transfer", "workforce development"];
+const EXISTING_LOCATIONS = ["Alabama", "Appalachia", "Argentina", "Bolivia", "Boston", "Caribbean", "Central America", "Chicago", "Chile", "China", "England", "Ethiopia", "France", "Haiti", "Indonesia", "Italy", "Japan", "Maine", "Michigan", "Mobile", "New England", "New Jersey", "New Orleans", "New York City", "Northeastern U.S.", "Northwest Florida", "Pensacola-Gulf Coast region", "Philadelphia", "Puerto Rico", "Shenzhen", "South Africa", "South Korea", "Traverse City", "Turkey", "Vietnam", "West Virginia", "Yemen", "the Bahamas"];
+// These are drawn from the existing database so new tags stay in-house-style;
+// not exhaustive, and the model should prefer exact reuse when a term already fits.
+
+const IGNORED = new Set(["other tags","Location based research in","bio link button","uni link","Name (from uni link)"]);
+
+let mode = "name";
+let record = null; // holds current parsed record
+
+document.getElementById("modeNameBtn").onclick = () => setMode("name");
+document.getElementById("modeLinkBtn").onclick = () => setMode("link");
+function setMode(m){
+  mode = m;
+  document.getElementById("modeNameBtn").classList.toggle("active", m==="name");
+  document.getElementById("modeLinkBtn").classList.toggle("active", m==="link");
+  document.getElementById("modeName").style.display = m==="name" ? "block" : "none";
+  document.getElementById("modeLink").style.display = m==="link" ? "block" : "none";
+}
+
+function renderChipGroup(containerId, options, selected, className){
+  const el = document.getElementById(containerId);
+  el.innerHTML = "";
+  options.forEach(opt => {
+    const chip = document.createElement("div");
+    chip.className = "chip" + (className ? " "+className : "") + (selected.includes(opt) ? " on" : "");
+    chip.textContent = opt;
+    chip.onclick = () => { chip.classList.toggle("on"); };
+    chip.dataset.value = opt;
+    el.appendChild(chip);
+  });
+}
+function getSelectedChips(containerId){
+  return Array.from(document.querySelectorAll("#"+containerId+" .chip.on")).map(c=>c.dataset.value);
+}
+
+// Generic tag-list handling: one function set drives key terms, self-identified
+// expertise, location-based research, and other tags.
+const tagLists = {
+  keyTerms: [], selfId: [], location: [], otherTags: []
+};
+const tagWrapId = { keyTerms:"keyTermsWrap", selfId:"selfIdWrap", location:"locationWrap", otherTags:"otherTagsWrap" };
+const tagInputId = { keyTerms:"addKeyTerm", selfId:"addSelfId", location:"addLocation", otherTags:"addOtherTag" };
+
+function renderTagList(key){
+  const wrap = document.getElementById(tagWrapId[key]);
+  wrap.innerHTML = "";
+  tagLists[key].forEach((term, i) => {
+    const chip = document.createElement("span");
+    chip.className = "tagchip";
+    chip.innerHTML = "<span></span><button>&times;</button>";
+    chip.querySelector("span").textContent = term;
+    chip.querySelector("button").onclick = () => { tagLists[key].splice(i,1); renderTagList(key); };
+    wrap.appendChild(chip);
+  });
+}
+Object.keys(tagInputId).forEach(key => {
+  document.getElementById(tagInputId[key]).addEventListener("keydown", e => {
+    if(e.key === "Enter" && e.target.value.trim()){
+      tagLists[key].push(e.target.value.trim());
+      e.target.value = "";
+      renderTagList(key);
+    }
+  });
+});
+// Backwards-compatible alias used elsewhere in the file.
+function renderKeyTerms(){ renderTagList("keyTerms"); }
+
+function setStatus(text, isErr){
+  const s = document.getElementById("status");
+  s.innerHTML = text;
+  s.className = "status" + (isErr ? " err" : "");
+}
+
+document.getElementById("runBtn").onclick = runResearch;
+
+async function runResearch(){
+  const btn = document.getElementById("runBtn");
+  let subjectLine;
+  if(mode === "name"){
+    const name = document.getElementById("inName").value.trim();
+    const uni = document.getElementById("inUni").value.trim();
+    if(!name || !uni){ setStatus("Enter both a name and a university.", true); return; }
+    subjectLine = `Name: ${name}\nUniversity: ${uni}`;
+  } else {
+    const link = document.getElementById("inLink").value.trim();
+    if(!link){ setStatus("Paste a bio link.", true); return; }
+    subjectLine = `Bio link: ${link}`;
+  }
+
+  btn.disabled = true;
+  setStatus('<span class="spinner"></span>Researching&hellip; this can take a bit while it searches.');
+  document.getElementById("record").classList.remove("show");
+
+  const systemPrompt = `You are a research assistant filling in a faculty/researcher database record for the Defense Industrial Base Institute (DIBI) at Northeastern University.
+
+Given a person's name + university, OR a bio link, research them using web search and return ONLY a single JSON object (no markdown fences, no commentary) with this exact shape:
+
+{
+  "name": "",
+  "title": "",
+  "email": "",
+  "university": "",
+  "city": "",
+  "state": "",
+  "country": "",
+  "phone": "",
+  "bio_link": "",
+  "expertise_categories": [],
+  "dibi_pillar": [],
+  "key_terms": [],
+  "location_based_research": [],
+  "sources": []
+}
+
+Rules:
+- "expertise_categories": choose one or more from this exact controlled list (use the exact strings, do not invent new categories unless truly nothing fits): ${JSON.stringify(CATEGORIES)}
+- "dibi_pillar": choose one best fit from this exact controlled list: ${JSON.stringify(PILLARS)}
+- "key_terms": a list of about 40-50 specific research keywords/phrases describing their actual technical work (topics, methods, materials, systems, named programs/tools where relevant), in the house style already used in DIBI's database. Here is a sample of terms already in use, for style reference: ${JSON.stringify(EXISTING_KEY_TERMS)}
+  - If one of these existing terms genuinely applies to this person, reuse it verbatim rather than writing a near-duplicate in different words.
+  - For anything not already covered, write new terms that match the same style: specific and concrete (not generic buzzwords like "innovation" or "research" on their own), title case or lowercase matching how similar existing terms are written, each a short phrase (1-5 words).
+  - Order roughly most-to-least central to their work.
+- "location_based_research": specific places (countries, regions, states, cities) where their research/fieldwork is focused or deployed — distinct from where they personally work. Only include this if there's clear evidence of a geographic research focus; otherwise leave []. Style reference from existing entries: ${JSON.stringify(EXISTING_LOCATIONS)}
+- "city"/"state"/"country": where the person is based (their university campus location), not project or research-site locations. Write "state" and "country" as full names, never abbreviations — "Ohio" not "OH", "United States" not "USA" or "US".
+- "bio_link": the single best canonical URL for their faculty/staff bio page.
+- "email"/"phone": only include if publicly listed; leave "" if not found. Never guess or fabricate.
+- "sources": list of URLs you actually consulted.
+- Leave a field "" or [] if you cannot find reliable information — do not fabricate.
+- Do not include any text outside the JSON object.`;
+
+  if(!WORKER_BASE_URL){
+    setStatus("Set WORKER_BASE_URL near the top of this file's script first.", true);
+    btn.disabled = false;
+    return;
+  }
+
+  try{
+    const response = await fetch(`${WORKER_BASE_URL}/research`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: "user", content: subjectLine }],
+        tools: [{ type: "web_search_20250305", name: "web_search" }]
+      })
+    });
+    const data = await response.json();
+    if(data.error){ throw new Error(data.error.message || "API error"); }
+
+    const textBlocks = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+    let jsonStr = textBlocks.trim();
+    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if(fenceMatch) jsonStr = fenceMatch[1].trim();
+    const firstBrace = jsonStr.indexOf("{");
+    const lastBrace = jsonStr.lastIndexOf("}");
+    if(firstBrace === -1 || lastBrace === -1){
+      console.error("Full API response:", data);
+      const preview = textBlocks.slice(0, 300) || "(empty response text)";
+      throw new Error(`No JSON found in response (stop_reason: ${data.stop_reason}). Response started with: "${preview}"`);
+    }
+    jsonStr = jsonStr.slice(firstBrace, lastBrace+1);
+
+    const parsed = JSON.parse(jsonStr);
+    populateRecord(parsed);
+    setStatus("Done. Review and edit before saving to the database.");
+  } catch(err){
+    console.error(err);
+    setStatus("Could not complete research: " + err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function populateRecord(p){
+  record = p;
+  document.getElementById("record").classList.add("show");
+  document.getElementById("airtablePanel").classList.add("show");
+  document.getElementById("recordId").textContent = "DRAFT RECORD \u00b7 " + new Date().toISOString().slice(0,10);
+
+  document.getElementById("fName").value = p.name || "";
+  document.getElementById("fUni").value = p.university || "";
+  document.getElementById("fTitle").value = p.title || "";
+  document.getElementById("fEmail").value = p.email || "";
+  document.getElementById("fPhone").value = p.phone || "";
+  document.getElementById("fCity").value = p.city || "";
+  document.getElementById("fState").value = normalizeStateCountry(p.state, "state") || "";
+  document.getElementById("fCountry").value = normalizeStateCountry(p.country, "country") || "";
+  document.getElementById("fBioLink").value = p.bio_link || "";
+
+  renderChipGroup("catChips", CATEGORIES, p.expertise_categories || [], "");
+  renderChipGroup("pillarChips", PILLARS, p.dibi_pillar || [], "pillar");
+
+  tagLists.keyTerms = Array.isArray(p.key_terms) ? p.key_terms.slice() : [];
+  renderKeyTerms();
+
+  tagLists.selfId = []; // manual only — not researched
+  renderTagList("selfId");
+  tagLists.location = Array.isArray(p.location_based_research) ? p.location_based_research.slice() : [];
+  renderTagList("location");
+  tagLists.otherTags = []; // manual only — not researched
+  renderTagList("otherTags");
+
+  const sources = Array.isArray(p.sources) ? p.sources.filter(Boolean) : [];
+  const sourcesBlock = document.getElementById("sourcesBlock");
+  if(sources.length){
+    sourcesBlock.style.display = "block";
+    document.getElementById("sourcesList").innerHTML = sources.map(u =>
+      `<div><a href="${u}" target="_blank" rel="noopener">${u}</a></div>`).join("");
+  } else {
+    sourcesBlock.style.display = "none";
+  }
+}
+
+function buildCsvRow(){
+  const values = {
+    "Name": document.getElementById("fName").value,
+    "Title": document.getElementById("fTitle").value,
+    "email": document.getElementById("fEmail").value,
+    "University": document.getElementById("fUni").value,
+    "expertise categories": getSelectedChips("catChips").join(","),
+    "dibi pillar": getSelectedChips("pillarChips").join(","),
+    "bio link": document.getElementById("fBioLink").value,
+    "key terms": tagLists.keyTerms.join(","),
+    "other tags": tagLists.otherTags.join(","),
+    "city": document.getElementById("fCity").value,
+    "State": document.getElementById("fState").value,
+    "country": document.getElementById("fCountry").value,
+    "Location based research in": tagLists.location.join(","),
+    "self identified expertise areas": tagLists.selfId.join(","),
+    "phone number": document.getElementById("fPhone").value,
+    "may 9 comment": "",
+    "bio link button": "",
+    "uni link": "",
+    "Name (from uni link)": ""
+  };
+  const esc = v => {
+    v = (v==null?"":String(v));
+    if(/[",\n]/.test(v)) return '"' + v.replace(/"/g,'""') + '"';
+    return v;
+  };
+  return COLUMNS.map(c => esc(values[c])).join(",");
+}
+
+document.getElementById("copyBtn").onclick = async () => {
+  const row = buildCsvRow();
+  try{
+    await navigator.clipboard.writeText(row);
+    const msg = document.getElementById("copiedMsg");
+    msg.textContent = "Copied.";
+    setTimeout(()=>{ msg.textContent=""; }, 2000);
+  } catch(e){
+    alert("Could not copy automatically. Row:\n\n" + row);
+  }
+};
+
+document.getElementById("downloadBtn").onclick = () => {
+  const header = COLUMNS.join(",");
+  const row = buildCsvRow();
+  const csv = header + "\n" + row + "\n";
+  const blob = new Blob([csv], {type: "text/csv"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const nameSlug = (document.getElementById("fName").value || "record").trim().replace(/\s+/g,"_");
+  a.href = url;
+  a.download = `dibi_record_${nameSlug}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+// --- Airtable integration ---
+// Uses the same WORKER_BASE_URL defined above, at the /save route.
+
+document.addEventListener("DOMContentLoaded", () => {
+  if(WORKER_BASE_URL){
+    document.getElementById("atConnectedNote").style.display = "block";
+  } else {
+    document.getElementById("atNotConfigured").style.display = "block";
+    document.getElementById("atSendBtn").disabled = true;
+  }
+});
+
+function setAtStatus(text, isErr){
+  const s = document.getElementById("atStatus");
+  s.innerHTML = text;
+  s.className = "status" + (isErr ? " err" : "");
+}
+
+document.getElementById("atSendBtn").onclick = async () => {
+  if(!WORKER_BASE_URL){
+    setAtStatus("Set up the worker first — see dibi-worker.js.", true);
+    return;
+  }
+
+  // Build the fields object using your base's exact field names/types.
+  const fields = {};
+  const name = document.getElementById("fName").value.trim();
+  const title = document.getElementById("fTitle").value.trim();
+  const email = document.getElementById("fEmail").value.trim();
+  const uni = document.getElementById("fUni").value.trim();
+  const bioLink = document.getElementById("fBioLink").value.trim();
+  const city = document.getElementById("fCity").value.trim();
+  const state = document.getElementById("fState").value.trim();
+  const country = document.getElementById("fCountry").value.trim();
+  const phone = document.getElementById("fPhone").value.trim();
+  const cats = getSelectedChips("catChips");
+  const pillars = getSelectedChips("pillarChips");
+
+  if(name) fields["Name"] = name;
+  if(title) fields["Title"] = title;
+  if(email) fields["email"] = email;
+  if(uni) fields["University"] = [uni];               // multiple select
+  if(cats.length) fields["expertise categories"] = cats;    // multiple select
+  if(pillars.length) fields["dibi pillar"] = pillars;        // multiple select
+  if(bioLink) fields["bio link"] = bioLink;
+  if(tagLists.keyTerms.length) fields["key terms"] = tagLists.keyTerms;         // multiple select
+  if(tagLists.selfId.length) fields["self identified expertise areas"] = tagLists.selfId; // multiple select
+  if(tagLists.location.length) fields["Location based research in"] = tagLists.location;    // multiple select
+  if(tagLists.otherTags.length) fields["other tags"] = tagLists.otherTags;      // multiple select
+  if(city) fields["city"] = city;                       // single select
+  if(state) fields["State"] = state;                     // single select
+  if(country) fields["country"] = country;                 // single select
+  if(phone) fields["phone number"] = phone;
+
+  const btn = document.getElementById("atSendBtn");
+  btn.disabled = true;
+  setAtStatus('<span class="spinner"></span>Sending to Airtable&hellip;');
+
+  try{
+    const res = await fetch(`${WORKER_BASE_URL}/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields })
+    });
+    const data = await res.json();
+    if(!res.ok){
+      throw new Error((data.error && (data.error.message || data.error.type)) || `HTTP ${res.status}`);
+    }
+    setAtStatus("Added to Airtable.");
+  } catch(err){
+    console.error(err);
+    setAtStatus("Could not add record: " + err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+};
+</script>
+
+
+</body></html>
