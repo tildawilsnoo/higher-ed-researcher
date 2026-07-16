@@ -403,6 +403,7 @@ Given a person's name + university, OR a bio link, research them using web searc
 }
 
 Rules:
+- "university": if university entered as input, put it in the same way here. Otherwise use the full name of the university, no acronyms even as parentheticals.
 - "expertise_categories": choose one or more from this exact controlled list (use the exact strings, do not invent new categories unless nothing fits, in which case you can invent a new category.): ${JSON.stringify(CATEGORIES)} Do not over assign categories if they only vaguely fit, only assign multiple categories if they truely have multiple areas of expertise.
 - "dibi_pillar": choose one best fit from this exact controlled list: ${JSON.stringify(PILLARS)}
 - "key_terms": a list of about 40-50 specific research keywords/phrases describing their actual technical work (topics, methods, materials, systems, named programs/tools where relevant), in the house style already used in DIBI's database. Here is a sample of terms already in use, for style reference: ${JSON.stringify(EXISTING_KEY_TERMS)}
