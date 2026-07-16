@@ -48,6 +48,10 @@
     font-weight:600;cursor:pointer;letter-spacing:0.02em;white-space:nowrap;}
   .run-btn:disabled{background:#C9A5AC;cursor:default;}
   .run-btn:hover:not(:disabled){background:#a80d26;}
+  .clear-btn{background:#fff;color:var(--ink);border:1px solid var(--rule-dark);padding:10px 18px;
+    font-size:14px;font-family:inherit;cursor:pointer;letter-spacing:0.02em;white-space:nowrap;}
+  .clear-btn:hover:not(:disabled){background:var(--ink);color:#fff;border-color:var(--ink);}
+  .clear-btn:disabled{opacity:0.5;cursor:default;}
 
   .status{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;
     color:var(--muted);margin-top:12px;min-height:16px;}
@@ -127,6 +131,7 @@
 
     <div class="run-row">
       <button class="run-btn" id="runBtn">Research</button>
+      <button class="clear-btn" id="clearBtn">Clear form</button>
     </div>
     <div class="status" id="status"></div>
   </div>
@@ -328,6 +333,35 @@ function setStatus(text, isErr){
 }
 
 document.getElementById("runBtn").onclick = runResearch;
+document.getElementById("clearBtn").onclick = resetForm;
+
+// Wipe every field, chip, and tag so the next person starts from a clean slate.
+function resetForm(){
+  // Search inputs
+  ["inName","inUni","inLink"].forEach(id => { document.getElementById(id).value = ""; });
+
+  // Drafted record text fields
+  ["fName","fUni","fTitle","fEmail","fPhone","fCity","fState","fCountry","fBioLink"]
+    .forEach(id => { document.getElementById(id).value = ""; });
+
+  // Chip groups back to nothing selected
+  renderChipGroup("catChips", CATEGORIES, [], "");
+  renderChipGroup("pillarChips", PILLARS, [], "pillar");
+
+  // Every tag list emptied and re-rendered
+  Object.keys(tagLists).forEach(key => { tagLists[key] = []; renderTagList(key); });
+
+  // Sources and the record/Airtable panels
+  document.getElementById("sourcesBlock").style.display = "none";
+  document.getElementById("sourcesList").innerHTML = "";
+  document.getElementById("record").classList.remove("show");
+  document.getElementById("airtablePanel").classList.remove("show");
+
+  record = null;
+  setStatus("");
+  const atStatus = document.getElementById("atStatus");
+  if(atStatus){ atStatus.textContent = ""; atStatus.className = "status"; }
+}
 
 async function runResearch(){
   const btn = document.getElementById("runBtn");
