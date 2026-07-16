@@ -98,7 +98,7 @@
     <h1>Researcher Intake</h1>
     <span class="tag">DIBI · FACULTY DATABASE</span>
   </div>
-  <p class="subhead">Enter a name and university, or paste a bio link. It researches the person and drafts a record ready to drop into the database.</p>
+  <p class="subhead">Enter a name and university, or paste a bio link, and it researches the person and drafts a record for you. Or skip the research and fill in any of the fields below manually.</p>
 
   <div class="panel">
     <div class="mode-toggle">
@@ -145,7 +145,7 @@
     </div>
     <div class="grid3">
       <div class="field-row"><label>City</label><input type="text" id="fCity"></div>
-      <div class="field-row"><label>State</label><input type="text" id="fState"></div>
+      <div class="field-row"><label>State (full name)</label><input type="text" id="fState"></div>
       <div class="field-row"><label>Country</label><input type="text" id="fCountry"></div>
     </div>
     <div class="field-row"><label>Bio link</label><input type="text" id="fBioLink"></div>
@@ -428,34 +428,47 @@ Rules:
   }
 }
 
+// Fill a text input only if the user hasn't already typed something there.
+function fillIfEmpty(id, value){
+  const el = document.getElementById(id);
+  if(!el.value.trim() && value) el.value = value;
+}
+// Union two lists without duplicates, keeping existing entries first.
+function mergeUnique(existing, incoming){
+  const out = existing.slice();
+  (incoming || []).forEach(v => { if(v && !out.includes(v)) out.push(v); });
+  return out;
+}
+
 function populateRecord(p){
   record = p;
   document.getElementById("record").classList.add("show");
   document.getElementById("airtablePanel").classList.add("show");
   document.getElementById("recordId").textContent = "DRAFT RECORD \u00b7 " + new Date().toISOString().slice(0,10);
 
-  document.getElementById("fName").value = p.name || "";
-  document.getElementById("fUni").value = p.university || "";
-  document.getElementById("fTitle").value = p.title || "";
-  document.getElementById("fEmail").value = p.email || "";
-  document.getElementById("fPhone").value = p.phone || "";
-  document.getElementById("fCity").value = p.city || "";
-  document.getElementById("fState").value = normalizeStateCountry(p.state, "state") || "";
-  document.getElementById("fCountry").value = normalizeStateCountry(p.country, "country") || "";
-  document.getElementById("fBioLink").value = p.bio_link || "";
+  // Research only fills fields the user left blank — manual entries are kept.
+  fillIfEmpty("fName", p.name);
+  fillIfEmpty("fUni", p.university);
+  fillIfEmpty("fTitle", p.title);
+  fillIfEmpty("fEmail", p.email);
+  fillIfEmpty("fPhone", p.phone);
+  fillIfEmpty("fCity", p.city);
+  fillIfEmpty("fState", normalizeStateCountry(p.state, "state"));
+  fillIfEmpty("fCountry", normalizeStateCountry(p.country, "country"));
+  fillIfEmpty("fBioLink", p.bio_link);
 
-  renderChipGroup("catChips", CATEGORIES, p.expertise_categories || [], "");
-  renderChipGroup("pillarChips", PILLARS, p.dibi_pillar || [], "pillar");
+  // Chips/tags merge with whatever the user already selected or added.
+  renderChipGroup("catChips", CATEGORIES,
+    mergeUnique(getSelectedChips("catChips"), p.expertise_categories), "");
+  renderChipGroup("pillarChips", PILLARS,
+    mergeUnique(getSelectedChips("pillarChips"), p.dibi_pillar), "pillar");
 
-  tagLists.keyTerms = Array.isArray(p.key_terms) ? p.key_terms.slice() : [];
+  tagLists.keyTerms = mergeUnique(tagLists.keyTerms, p.key_terms);
   renderKeyTerms();
 
-  tagLists.selfId = []; // manual only — not researched
-  renderTagList("selfId");
-  tagLists.location = Array.isArray(p.location_based_research) ? p.location_based_research.slice() : [];
+  // selfId and otherTags are manual only — research doesn't touch them.
+  tagLists.location = mergeUnique(tagLists.location, p.location_based_research);
   renderTagList("location");
-  tagLists.otherTags = []; // manual only — not researched
-  renderTagList("otherTags");
 
   const sources = Array.isArray(p.sources) ? p.sources.filter(Boolean) : [];
   const sourcesBlock = document.getElementById("sourcesBlock");
@@ -536,7 +549,28 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("atNotConfigured").style.display = "block";
     document.getElementById("atSendBtn").disabled = true;
   }
+  // Show the record + Airtable panels immediately with empty fields so the
+  // record can be filled in by hand, with or without running research first.
+  initEmptyRecord();
 });
+
+// Renders the record panel in an empty state (all chips/tags available,
+// no values filled in). Research later overwrites these via populateRecord.
+function initEmptyRecord(){
+  document.getElementById("record").classList.add("show");
+  document.getElementById("airtablePanel").classList.add("show");
+  document.getElementById("recordId").textContent = "DRAFT RECORD · " + new Date().toISOString().slice(0,10);
+
+  renderChipGroup("catChips", CATEGORIES, [], "");
+  renderChipGroup("pillarChips", PILLARS, [], "pillar");
+
+  tagLists.keyTerms = [];   renderTagList("keyTerms");
+  tagLists.selfId = [];     renderTagList("selfId");
+  tagLists.location = [];   renderTagList("location");
+  tagLists.otherTags = [];  renderTagList("otherTags");
+
+  document.getElementById("sourcesBlock").style.display = "none";
+}
 
 function setAtStatus(text, isErr){
   const s = document.getElementById("atStatus");
