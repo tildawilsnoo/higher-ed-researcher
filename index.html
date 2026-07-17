@@ -59,6 +59,8 @@
 
   .record{display:none;}
   .record.show{display:block;}
+  .notice{display:none;}
+  .notice.show{display:block;}
   .record-id{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;
     color:var(--muted);letter-spacing:0.05em;margin-bottom:14px;}
 
@@ -134,6 +136,15 @@
       <button class="clear-btn" id="clearBtn">Clear form</button>
     </div>
     <div class="status" id="status"></div>
+  </div>
+
+  <div class="panel notice" id="employmentNotice">
+    <h3 class="section" style="margin-top:0;">Before you continue</h3>
+    <p id="noticeText" style="font-size:14px;margin:0 0 16px;"></p>
+    <div class="run-row">
+      <button class="clear-btn" id="continueAnywayBtn">Fill in form anyway</button>
+      <button class="clear-btn" id="noticeNewSearchBtn">Start a new search</button>
+    </div>
   </div>
 
   <div class="panel record" id="record">
@@ -267,6 +278,7 @@ const IGNORED = new Set(["other tags","Location based research in","bio link but
 
 let mode = "name";
 let record = null; // holds current parsed record
+let pendingRecord = null; // holds a parsed record while an employment notice is showing
 
 document.getElementById("modeNameBtn").onclick = () => setMode("name");
 document.getElementById("modeLinkBtn").onclick = () => setMode("link");
@@ -356,6 +368,7 @@ function resetForm(){
   document.getElementById("sourcesList").innerHTML = "";
   document.getElementById("record").classList.remove("show");
   document.getElementById("airtablePanel").classList.remove("show");
+  document.getElementById("employmentNotice").classList.remove("show");
 
   record = null;
   setStatus("");
@@ -390,6 +403,8 @@ Given a person's name + university, OR a bio link, research them using web searc
   "title": "",
   "email": "",
   "university": "",
+  "employment_status": "",
+  "current_affiliation": "",
   "city": "",
   "state": "",
   "country": "",
@@ -404,6 +419,13 @@ Given a person's name + university, OR a bio link, research them using web searc
 
 Rules:
 - "university": if university entered as input, put it in the same way here. Otherwise use the full name of the university, no acronyms even as parentheticals.
+- "employment_status": one of "current", "moved", "retired", or "unclear".
+  - "moved": clear evidence (a new faculty/staff page, press release, current LinkedIn, news article) shows they now work somewhere else.
+  - "retired": clear evidence of retirement, emeritus status, or similar.
+  - "unclear": you found the person but can't confidently tell either way.
+  - "current": no evidence contradicting that they still work at the given university.
+  - Only use "moved" or "retired" on real evidence — do not infer it just because a bio page looks old.
+- "current_affiliation": if "employment_status" is "moved" and you can identify where they went, put that institution/employer name here. Otherwise "".
 - "expertise_categories": choose one or more from this exact controlled list (use the exact strings, do not invent new categories unless nothing fits, in which case you can invent a new category.): ${JSON.stringify(CATEGORIES)} Do not over assign categories if they only vaguely fit, only assign multiple categories if they truely have multiple areas of expertise.
 - "dibi_pillar": choose one best fit from this exact controlled list: ${JSON.stringify(PILLARS)}
 - "key_terms": a list of about 40-50 specific research keywords/phrases describing their actual technical work (topics, methods, materials, systems, named programs/tools where relevant), in the house style already used in DIBI's database. Here is a sample of terms already in use, for style reference: ${JSON.stringify(EXISTING_KEY_TERMS)}
@@ -444,10 +466,10 @@ Rules:
         // max_uses caps how many searches Claude can run for one person —
         // without a limit, a thin web presence can trigger many more
         // searches (and much larger accumulated search-result context)
-        // than a well-indexed faculty page needs. 3 covers the typical
-        // "find their page, maybe check one more source" pattern; raise
-        // it if you notice good candidates coming back empty-handed.
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }]
+        // than a well-indexed faculty page needs. Raised from 3 to 4
+        // (roughly $0.11 -> up to ~$0.15/record) to give harder-to-find
+        // people one extra search before giving up.
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }]
       })
     });
     const data = await response.json();
@@ -467,8 +489,15 @@ Rules:
     jsonStr = jsonStr.slice(firstBrace, lastBrace+1);
 
     const parsed = JSON.parse(jsonStr);
-    populateRecord(parsed);
-    setStatus("Done. Review and edit before saving to the database.");
+    const status = (parsed.employment_status || "current").toLowerCase();
+    if(status === "moved" || status === "retired"){
+      showEmploymentNotice(parsed);
+      setStatus("Done — see the notice below before adding this record.");
+    } else {
+      document.getElementById("employmentNotice").classList.remove("show");
+      populateRecord(parsed);
+      setStatus("Done. Review and edit before saving to the database.");
+    }
   } catch(err){
     console.error(err);
     setStatus("Could not complete research: " + err.message, true);
@@ -495,6 +524,40 @@ function mergeUnique(existing, incoming){
   items.forEach(v => { if(v && !out.includes(v)) out.push(v); });
   return out;
 }
+
+function employmentNoticeText(p){
+  const name = p.name || "This person";
+  const uni = p.university || "the university you entered";
+  const status = (p.employment_status || "").toLowerCase();
+  const newAff = (p.current_affiliation || "").trim();
+  if(status === "retired"){
+    return `${name} no longer appears to work at ${uni} — they likely retired.`;
+  }
+  if(status === "moved"){
+    return newAff
+      ? `${name} no longer appears to work at ${uni} — they likely now work at ${newAff}.`
+      : `${name} no longer appears to work at ${uni}. We couldn't confirm where they went next.`;
+  }
+  return "";
+}
+
+function showEmploymentNotice(p){
+  pendingRecord = p;
+  document.getElementById("record").classList.remove("show");
+  document.getElementById("airtablePanel").classList.remove("show");
+  document.getElementById("noticeText").textContent = employmentNoticeText(p);
+  document.getElementById("employmentNotice").classList.add("show");
+}
+
+document.getElementById("continueAnywayBtn").onclick = () => {
+  document.getElementById("employmentNotice").classList.remove("show");
+  if(pendingRecord){ populateRecord(pendingRecord); pendingRecord = null; }
+};
+document.getElementById("noticeNewSearchBtn").onclick = () => {
+  document.getElementById("employmentNotice").classList.remove("show");
+  pendingRecord = null;
+  resetForm();
+};
 
 function populateRecord(p){
   record = p;
