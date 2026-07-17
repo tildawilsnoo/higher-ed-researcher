@@ -748,6 +748,8 @@ document.getElementById("atSendBtn").onclick = async () => {
       throw new Error((data.error && (data.error.message || data.error.type)) || `HTTP ${res.status}`);
     }
     setAtStatus("Added to Airtable.");
+    resetForm();
+    setStatus("Added to Airtable — ready for the next person.");
   } catch(err){
     console.error(err);
     setAtStatus("Could not add record: " + err.message, true);
