@@ -431,9 +431,23 @@ Rules:
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         max_tokens: 4096,
-        system: systemPrompt,
+        // systemPrompt is identical on every call (it's built from the fixed
+        // CATEGORIES/PILLARS/EXISTING_* lists above, not from subjectLine),
+        // so it's marked cacheable. The first call in a ~5-minute window
+        // pays a small write premium; every call after that reads it at
+        // ~10% of normal input cost instead of paying full price for the
+        // same few thousand tokens of reference lists each time.
+        system: [
+          { type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }
+        ],
         messages: [{ role: "user", content: subjectLine }],
-        tools: [{ type: "web_search_20250305", name: "web_search" }]
+        // max_uses caps how many searches Claude can run for one person —
+        // without a limit, a thin web presence can trigger many more
+        // searches (and much larger accumulated search-result context)
+        // than a well-indexed faculty page needs. 3 covers the typical
+        // "find their page, maybe check one more source" pattern; raise
+        // it if you notice good candidates coming back empty-handed.
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }]
       })
     });
     const data = await response.json();
