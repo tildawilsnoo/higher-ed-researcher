@@ -455,12 +455,14 @@ Rules:
         max_tokens: 4096,
         // systemPrompt is identical on every call (it's built from the fixed
         // CATEGORIES/PILLARS/EXISTING_* lists above, not from subjectLine),
-        // so it's marked cacheable. The first call in a ~5-minute window
-        // pays a small write premium; every call after that reads it at
-        // ~10% of normal input cost instead of paying full price for the
-        // same few thousand tokens of reference lists each time.
+        // so it's marked cacheable. Using the 1-hour TTL (instead of the
+        // 5-minute default) because researcher lookups are done one at a
+        // time with review in between, so gaps often exceed 5 minutes.
+        // The write costs more (2x base vs 1.25x), but reads are still
+        // ~10% of normal cost, so it pays off whenever two calls land
+        // within the same hour instead of the same 5-minute window.
         system: [
-          { type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }
+          { type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }
         ],
         messages: [{ role: "user", content: subjectLine }],
         // max_uses caps how many searches Claude can run for one person —
