@@ -419,7 +419,7 @@ Given a person's name + university, OR a bio link, research them using web searc
 }
 
 Rules:
-- "university": if university entered as input, put it in the same way here. Otherwise use the full name of the university, no acronyms even as parentheticals.
+- "university": Use the full name of the university, no acronyms even as parentheticals.
 - "employment_status": one of "current", "moved", "retired", or "unclear".
   - "moved": clear evidence (a new faculty/staff page, press release, current LinkedIn, news article) shows they now work somewhere else.
   - "retired": clear evidence of retirement, emeritus status, or similar.
@@ -435,7 +435,7 @@ Rules:
   - Order roughly most-to-least central to their work.
 - "location_based_research": specific places (countries, regions, states, cities) where their research/fieldwork is focused or deployed — distinct from where they personally work. Only include this if there's clear evidence of a geographic research focus; otherwise leave []. Style reference from existing entries: ${JSON.stringify(EXISTING_LOCATIONS)}
 - "city"/"state"/"country": where the person is based (their university campus location), not project or research-site locations. Write "state" and "country" as full names, never abbreviations — "Ohio" not "OH", "United States" not "USA" or "US".
-- "bio_link": the single best canonical URL for their faculty/staff bio page. Look for links associated with their university rather than a general google scholar or linkedin page.
+- "bio_link": the single best canonical URL for their faculty/staff bio page. Look for links associated with their university rather than a general google scholar or linkedin page. Prefer links specific to the individual being researched, not links more generally about groups they're involved in.
 - "email"/"phone": only include if publicly listed; leave "" if not found. Never guess or fabricate.
 - "sources": list of URLs you actually consulted.
 - Leave a field "" or [] if you cannot find reliable information — do not fabricate.
