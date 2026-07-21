@@ -736,7 +736,7 @@ document.getElementById("atSendBtn").onclick = async () => {
   if(country) fields["country"] = country;                 // single select
   if(phone) fields["phone number"] = phone;
   const sources = (record && Array.isArray(record.sources)) ? record.sources.filter(Boolean) : [];
-  if(sources.length) fields["Related Sites"] = sources.join("\n");   // long text
+  if(sources.length) fields["related sites"] = sources.join("\n");   // long text
 
   const btn = document.getElementById("atSendBtn");
   btn.disabled = true;
