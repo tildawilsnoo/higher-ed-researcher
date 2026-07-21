@@ -58,7 +58,8 @@ export default {
       const result = {
         categories: choicesFor("expertise categories"),
         keyTerms: choicesFor("key terms"),
-        locations: choicesFor("Location based research in")
+        locations: choicesFor("Location based research in"),
+        universities: choicesFor("University")
       };
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }
