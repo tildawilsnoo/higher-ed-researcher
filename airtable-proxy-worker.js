@@ -10,6 +10,8 @@
 //    - AIRTABLE_BASE_ID    e.g. appE2AHUkyOOL65PC
 //    - AIRTABLE_TABLE      e.g. tblRtxwd0dW3DKmt8
 //    - AIRTABLE_TOKEN      your Airtable personal access token
+//      (must include the schema.bases:read scope, in addition to data
+//      read/write, so the /options endpoint can see field choices)
 //    - ANTHROPIC_API_KEY   your Anthropic API key (from console.anthropic.com)
 // 4. Copy the worker's URL (looks like https://name.subdomain.workers.dev)
 //    and paste it into WORKER_BASE_URL near the top of the HTML file's script.
@@ -18,18 +20,54 @@ export default {
   async fetch(request, env) {
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
     };
 
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
+
+    const url = new URL(request.url);
+
+    // --- Live select-field options, read straight from Airtable's schema, so
+    // newly-added categories/key terms/locations are picked up on the next
+    // page load without touching this file. One meta call covers all three. ---
+    if (url.pathname === "/options") {
+      if (request.method !== "GET") {
+        return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+      }
+      const metaUrl = `https://api.airtable.com/v0/meta/bases/${env.AIRTABLE_BASE_ID}/tables`;
+      const metaRes = await fetch(metaUrl, {
+        headers: { "Authorization": `Bearer ${env.AIRTABLE_TOKEN}` }
+      });
+      const meta = await metaRes.json();
+      if (!metaRes.ok) {
+        return new Response(JSON.stringify({ error: meta.error || "Failed to fetch schema" }), {
+          status: metaRes.status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+      const table = (meta.tables || []).find(t => t.id === env.AIRTABLE_TABLE);
+      const choicesFor = (fieldName) => {
+        const field = table && table.fields.find(f => f.name === fieldName);
+        return (field && field.options && field.options.choices)
+          ? field.options.choices.map(c => c.name)
+          : [];
+      };
+      const result = {
+        categories: choicesFor("expertise categories"),
+        keyTerms: choicesFor("key terms"),
+        locations: choicesFor("Location based research in")
+      };
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405, headers: corsHeaders });
     }
-
-    const url = new URL(request.url);
 
     // --- AI research call ---
     if (url.pathname === "/research") {
@@ -80,6 +118,6 @@ export default {
       });
     }
 
-    return new Response("Not found. Use /research or /save.", { status: 404, headers: corsHeaders });
+    return new Response("Not found. Use /research, /save, or /options.", { status: 404, headers: corsHeaders });
   }
 };
