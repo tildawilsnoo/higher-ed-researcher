@@ -66,6 +66,110 @@ export default {
       });
     }
 
+    // --- Duplicate check: does this name + university look like it's
+    // already in the table? Scans every existing Name/University pair (the
+    // table is small enough that a full scan per check is cheap) and scores
+    // each one with a normalized Levenshtein similarity, so near-misses
+    // (typos, "Dr." prefixes, middle initials) still surface. ---
+    if (url.pathname === "/check-duplicate") {
+      if (request.method !== "GET") {
+        return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+      }
+      const qName = (url.searchParams.get("name") || "").trim();
+      const qUni = (url.searchParams.get("university") || "").trim();
+      if (!qName) {
+        return new Response(JSON.stringify({ matches: [] }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      const records = [];
+      let offset;
+      do {
+        const listUrl = new URL(`https://api.airtable.com/v0/${env.AIRTABLE_BASE_ID}/${env.AIRTABLE_TABLE}`);
+        listUrl.searchParams.append("fields[]", "Name");
+        listUrl.searchParams.append("fields[]", "University");
+        listUrl.searchParams.set("pageSize", "100");
+        if (offset) listUrl.searchParams.set("offset", offset);
+        const listRes = await fetch(listUrl.toString(), {
+          headers: { "Authorization": `Bearer ${env.AIRTABLE_TOKEN}` }
+        });
+        const listData = await listRes.json();
+        if (!listRes.ok) {
+          return new Response(JSON.stringify({ error: listData.error || "Failed to list records" }), {
+            status: listRes.status,
+            headers: { ...corsHeaders, "Content-Type": "application/json" }
+          });
+        }
+        records.push(...(listData.records || []));
+        offset = listData.offset;
+      } while (offset && records.length < 5000);
+
+      const normalize = (s) => (s || "")
+        .toString()
+        .toLowerCase()
+        .replace(/^(dr|prof|professor|mr|mrs|ms)\.?\s+/i, "")
+        .replace(/[.,]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const levenshtein = (a, b) => {
+        const m = a.length, n = b.length;
+        if (m === 0) return n;
+        if (n === 0) return m;
+        let prev = Array.from({ length: n + 1 }, (_, i) => i);
+        for (let i = 1; i <= m; i++) {
+          const cur = [i];
+          for (let j = 1; j <= n; j++) {
+            cur[j] = a[i - 1] === b[j - 1]
+              ? prev[j - 1]
+              : 1 + Math.min(prev[j - 1], prev[j], cur[j - 1]);
+          }
+          prev = cur;
+        }
+        return prev[n];
+      };
+      const similarity = (a, b) => {
+        if (!a || !b) return 0;
+        return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
+      };
+
+      const normName = normalize(qName);
+      const normUni = normalize(qUni);
+
+      const matches = [];
+      for (const rec of records) {
+        const recNameRaw = rec.fields && rec.fields["Name"];
+        const recName = normalize(recNameRaw);
+        if (!recName) continue;
+        const nameSim = similarity(normName, recName);
+        if (nameSim < 0.75) continue;
+
+        const recUniRaw = (rec.fields && rec.fields["University"]) || [];
+        const uniList = Array.isArray(recUniRaw) ? recUniRaw : [recUniRaw];
+        let uniSim = 0;
+        for (const u of uniList) {
+          uniSim = Math.max(uniSim, similarity(normUni, normalize(u)));
+        }
+        if (normUni && uniSim < 0.5) continue;
+
+        matches.push({
+          id: rec.id,
+          name: recNameRaw,
+          university: uniList.join(", "),
+          nameSimilarity: Math.round(nameSim * 100),
+          universitySimilarity: Math.round(uniSim * 100)
+        });
+      }
+
+      matches.sort((a, b) =>
+        (b.nameSimilarity + b.universitySimilarity) - (a.nameSimilarity + a.universitySimilarity));
+
+      return new Response(JSON.stringify({ matches: matches.slice(0, 5) }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405, headers: corsHeaders });
     }
@@ -119,6 +223,6 @@ export default {
       });
     }
 
-    return new Response("Not found. Use /research, /save, or /options.", { status: 404, headers: corsHeaders });
+    return new Response("Not found. Use /research, /save, /options, or /check-duplicate.", { status: 404, headers: corsHeaders });
   }
 };

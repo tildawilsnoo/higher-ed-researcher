@@ -139,6 +139,15 @@
     <div class="status" id="status"></div>
   </div>
 
+  <div class="panel notice" id="duplicateNotice">
+    <h3 class="section" style="margin-top:0;">Possible duplicate</h3>
+    <p id="duplicateNoticeText" style="font-size:14px;margin:0 0 16px;"></p>
+    <div class="run-row">
+      <button class="clear-btn" id="duplicateContinueBtn">Research anyway</button>
+      <button class="clear-btn" id="duplicateCancelBtn">Cancel</button>
+    </div>
+  </div>
+
   <div class="panel notice" id="employmentNotice">
     <h3 class="section" style="margin-top:0;">Before you continue</h3>
     <p id="noticeText" style="font-size:14px;margin:0 0 16px;"></p>
@@ -295,6 +304,7 @@ const IGNORED = new Set(["other tags","Location based research in","bio link but
 let mode = "name";
 let record = null; // holds current parsed record
 let pendingRecord = null; // holds a parsed record while an employment notice is showing
+let pendingSubjectLine = null; // holds the research subject line while a duplicate notice is showing
 
 document.getElementById("modeNameBtn").onclick = () => setMode("name");
 document.getElementById("modeLinkBtn").onclick = () => setMode("link");
@@ -385,27 +395,82 @@ function resetForm(){
   document.getElementById("record").classList.remove("show");
   document.getElementById("airtablePanel").classList.remove("show");
   document.getElementById("employmentNotice").classList.remove("show");
+  document.getElementById("duplicateNotice").classList.remove("show");
 
   record = null;
+  pendingSubjectLine = null;
   setStatus("");
   const atStatus = document.getElementById("atStatus");
   if(atStatus){ atStatus.textContent = ""; atStatus.className = "status"; }
 }
 
 async function runResearch(){
-  const btn = document.getElementById("runBtn");
   let subjectLine;
   if(mode === "name"){
     const name = document.getElementById("inName").value.trim();
     const uni = document.getElementById("inUni").value.trim();
     if(!name || !uni){ setStatus("Enter both a name and a university.", true); return; }
     subjectLine = `Name: ${name}\nUniversity: ${uni}`;
+
+    setStatus('<span class="spinner"></span>Checking for existing records&hellip;');
+    const matches = await checkDuplicates(name, uni);
+    if(matches.length){
+      showDuplicateNotice(matches, subjectLine);
+      return;
+    }
+    setStatus("");
   } else {
     const link = document.getElementById("inLink").value.trim();
     if(!link){ setStatus("Paste a bio link.", true); return; }
     subjectLine = `Bio link: ${link}`;
   }
 
+  await doResearch(subjectLine);
+}
+
+// Looks up existing Airtable records via the worker's /check-duplicate route
+// and returns any that look like the same person (fuzzy name + university
+// match). Fails open — if the check itself errors, research proceeds as
+// normal rather than blocking on a broken lookup.
+async function checkDuplicates(name, uni){
+  if(!WORKER_BASE_URL) return [];
+  try{
+    const params = new URLSearchParams({ name, university: uni });
+    const res = await fetch(`${WORKER_BASE_URL}/check-duplicate?${params.toString()}`);
+    if(!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.matches) ? data.matches : [];
+  } catch(e){
+    console.warn("Duplicate check failed, continuing without it.", e);
+    return [];
+  }
+}
+
+function showDuplicateNotice(matches, subjectLine){
+  pendingSubjectLine = subjectLine;
+  document.getElementById("record").classList.remove("show");
+  document.getElementById("airtablePanel").classList.remove("show");
+  const lines = matches
+    .map(m => `${m.name} — ${m.university} (${m.nameSimilarity}% name match)`)
+    .join("<br>");
+  document.getElementById("duplicateNoticeText").innerHTML =
+    `This looks like it might already be in the database:<br>${lines}`;
+  document.getElementById("duplicateNotice").classList.add("show");
+  setStatus("");
+}
+
+document.getElementById("duplicateContinueBtn").onclick = () => {
+  document.getElementById("duplicateNotice").classList.remove("show");
+  if(pendingSubjectLine){ doResearch(pendingSubjectLine); pendingSubjectLine = null; }
+};
+document.getElementById("duplicateCancelBtn").onclick = () => {
+  document.getElementById("duplicateNotice").classList.remove("show");
+  pendingSubjectLine = null;
+  setStatus("");
+};
+
+async function doResearch(subjectLine){
+  const btn = document.getElementById("runBtn");
   btn.disabled = true;
   setStatus('<span class="spinner"></span>Researching&hellip; this can take a bit while it searches.');
   document.getElementById("record").classList.remove("show");
