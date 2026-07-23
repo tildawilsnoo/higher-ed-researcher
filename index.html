@@ -152,7 +152,7 @@
     <h3 class="section" style="margin-top:0;">Before you continue</h3>
     <p id="noticeText" style="font-size:14px;margin:0 0 16px;"></p>
     <div class="run-row">
-      <button class="clear-btn" id="continueAnywayBtn">Fill in form anyway</button>
+      <button class="clear-btn" id="continueAnywayBtn">Continue anyway</button>
       <button class="clear-btn" id="noticeNewSearchBtn">Start a new search</button>
     </div>
   </div>
@@ -303,8 +303,40 @@ const IGNORED = new Set(["other tags","Location based research in","bio link but
 
 let mode = "name";
 let record = null; // holds current parsed record
-let pendingRecord = null; // holds a parsed record while an employment notice is showing
-let pendingSubjectLine = null; // holds the research subject line while a duplicate notice is showing
+let pendingRecord = null; // holds a fully-researched record while an employment notice is showing (bio-link path)
+let pendingResearchSubject = null; // holds { subjectLine } while an employment notice is showing pre-research (name path)
+let pendingDuplicate = null; // holds { name, uni, subjectLine } while a duplicate notice is showing
+
+// Focused, single-purpose check run before any full research, for the
+// "Name + university" path only (bio-link mode doesn't have a university
+// up front to check against). Kept deliberately narrow — one question, one
+// search budget — instead of being one of a dozen things the big research
+// prompt below is juggling at once, since splitting it out is what actually
+// improves accuracy (and it also saves the cost of a full research pass on
+// someone who's already moved or retired).
+const EMPLOYMENT_CHECK_SYSTEM_PROMPT = `You check whether a specific person still works at a specific university, for a faculty/researcher database. Do not research anything else about them right now — this is only about current employment status.
+
+Search the web to answer. University faculty/staff directory pages are often stale, so do not conclude "current" from a single directory listing alone if you can help it — cross-check against at least one more recent or independent source when available (LinkedIn, recent news, a lab or personal site with a visible date, a departmental announcement, an obituary, or a new employer's site). Actively look for signs the person left (moved, retired, deceased) rather than only confirming that they're still listed somewhere.
+
+Return ONLY a single JSON object (no markdown fences, no commentary):
+{
+  "employment_status": "",
+  "current_affiliation": "",
+  "confidence": "",
+  "evidence": ""
+}
+
+Rules:
+- "employment_status": one of "current", "moved", "retired", "unclear".
+  - "current": no credible evidence of departure, and ideally confirmed by more than one reasonably recent source.
+  - "moved": clear evidence (a new faculty/staff page, press release, current LinkedIn position, news article) they now work somewhere else.
+  - "retired": clear evidence of retirement, emeritus status, or death.
+  - "unclear": you found the person, but the evidence is thin, stale, or conflicting.
+- "current_affiliation": if "moved", their new institution/employer. Otherwise "".
+- "confidence": "high" if multiple consistent, reasonably recent sources agree; "medium" if only one solid source or a minor inconsistency; "low" if evidence is thin, old, or conflicting.
+- "evidence": one short sentence citing what you found, including a date if you saw one.
+- Never fabricate. If you can't find the person at all, use "unclear" with confidence "low" and say so in "evidence".
+- Do not include any text outside the JSON object.`;
 
 document.getElementById("modeNameBtn").onclick = () => setMode("name");
 document.getElementById("modeLinkBtn").onclick = () => setMode("link");
@@ -398,34 +430,35 @@ function resetForm(){
   document.getElementById("duplicateNotice").classList.remove("show");
 
   record = null;
-  pendingSubjectLine = null;
+  pendingRecord = null;
+  pendingResearchSubject = null;
+  pendingDuplicate = null;
   setStatus("");
   const atStatus = document.getElementById("atStatus");
   if(atStatus){ atStatus.textContent = ""; atStatus.className = "status"; }
 }
 
 async function runResearch(){
-  let subjectLine;
   if(mode === "name"){
     const name = document.getElementById("inName").value.trim();
     const uni = document.getElementById("inUni").value.trim();
     if(!name || !uni){ setStatus("Enter both a name and a university.", true); return; }
-    subjectLine = `Name: ${name}\nUniversity: ${uni}`;
+    const subjectLine = `Name: ${name}\nUniversity: ${uni}`;
 
     setStatus('<span class="spinner"></span>Checking for existing records&hellip;');
     const matches = await checkDuplicates(name, uni);
     if(matches.length){
-      showDuplicateNotice(matches, subjectLine);
+      showDuplicateNotice(matches, name, uni, subjectLine);
       return;
     }
-    setStatus("");
+
+    setStatus('<span class="spinner"></span>Verifying current employment&hellip;');
+    await verifyEmploymentAndMaybeResearch(name, uni, subjectLine);
   } else {
     const link = document.getElementById("inLink").value.trim();
     if(!link){ setStatus("Paste a bio link.", true); return; }
-    subjectLine = `Bio link: ${link}`;
+    await doResearch(`Bio link: ${link}`);
   }
-
-  await doResearch(subjectLine);
 }
 
 // Looks up existing Airtable records via the worker's /check-duplicate route
@@ -446,8 +479,8 @@ async function checkDuplicates(name, uni){
   }
 }
 
-function showDuplicateNotice(matches, subjectLine){
-  pendingSubjectLine = subjectLine;
+function showDuplicateNotice(matches, name, uni, subjectLine){
+  pendingDuplicate = { name, uni, subjectLine };
   document.getElementById("record").classList.remove("show");
   document.getElementById("airtablePanel").classList.remove("show");
   const lines = matches
@@ -459,15 +492,88 @@ function showDuplicateNotice(matches, subjectLine){
   setStatus("");
 }
 
-document.getElementById("duplicateContinueBtn").onclick = () => {
+document.getElementById("duplicateContinueBtn").onclick = async () => {
   document.getElementById("duplicateNotice").classList.remove("show");
-  if(pendingSubjectLine){ doResearch(pendingSubjectLine); pendingSubjectLine = null; }
+  if(!pendingDuplicate) return;
+  const { name, uni, subjectLine } = pendingDuplicate;
+  pendingDuplicate = null;
+  setStatus('<span class="spinner"></span>Verifying current employment&hellip;');
+  await verifyEmploymentAndMaybeResearch(name, uni, subjectLine);
 };
 document.getElementById("duplicateCancelBtn").onclick = () => {
   document.getElementById("duplicateNotice").classList.remove("show");
-  pendingSubjectLine = null;
+  pendingDuplicate = null;
   setStatus("");
 };
+
+// Runs the focused pre-research employment check (name + university path
+// only) and either proceeds straight to the full research call or, if the
+// person looks to have moved/retired/unclear (or "current" on weak
+// evidence), stops and shows the employment notice for the user to confirm
+// before spending on full research.
+async function verifyEmploymentAndMaybeResearch(name, uni, subjectLine){
+  const result = await checkEmployment(name, uni);
+  const status = (result.employment_status || "unclear").toLowerCase();
+  const weakCurrent = status === "current" && (result.confidence || "").toLowerCase() === "low";
+  if(status === "moved" || status === "retired" || status === "unclear" || weakCurrent){
+    showEmploymentPreNotice(name, uni, subjectLine, result);
+    return;
+  }
+  setStatus("");
+  await doResearch(subjectLine);
+}
+
+// Dedicated, narrow API call: "does this person still work at this
+// university" and nothing else, with its own web-search budget. Fails open
+// (treated as "current"/low confidence, i.e. proceed) if the check itself
+// errors, so a broken lookup never blocks research entirely.
+async function checkEmployment(name, uni){
+  if(!WORKER_BASE_URL) return { employment_status: "current", confidence: "low" };
+  try{
+    const response = await fetch(`${WORKER_BASE_URL}/research`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 512,
+        system: [
+          { type: "text", text: EMPLOYMENT_CHECK_SYSTEM_PROMPT, cache_control: { type: "ephemeral", ttl: "1h" } }
+        ],
+        messages: [{ role: "user", content: `Name: ${name}\nUniversity: ${uni}` }],
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]
+      })
+    });
+    const data = await response.json();
+    if(data.error){ throw new Error(data.error.message || "API error"); }
+
+    const textBlocks = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+    let jsonStr = textBlocks.trim();
+    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if(fenceMatch) jsonStr = fenceMatch[1].trim();
+    const firstBrace = jsonStr.indexOf("{");
+    const lastBrace = jsonStr.lastIndexOf("}");
+    if(firstBrace === -1 || lastBrace === -1) throw new Error("No JSON found in employment check response");
+    return JSON.parse(jsonStr.slice(firstBrace, lastBrace + 1));
+  } catch(e){
+    console.warn("Employment check failed, proceeding to full research.", e);
+    return { employment_status: "current", confidence: "low" };
+  }
+}
+
+function showEmploymentPreNotice(name, uni, subjectLine, result){
+  pendingResearchSubject = { subjectLine };
+  document.getElementById("record").classList.remove("show");
+  document.getElementById("airtablePanel").classList.remove("show");
+  document.getElementById("noticeText").textContent = employmentNoticeText({
+    name,
+    university: uni,
+    employment_status: result.employment_status,
+    current_affiliation: result.current_affiliation,
+    evidence: result.evidence
+  });
+  document.getElementById("employmentNotice").classList.add("show");
+  setStatus("");
+}
 
 async function doResearch(subjectLine){
   const btn = document.getElementById("runBtn");
@@ -577,8 +683,8 @@ Rules:
     jsonStr = jsonStr.slice(firstBrace, lastBrace+1);
 
     const parsed = JSON.parse(jsonStr);
-    const status = (parsed.employment_status || "current").toLowerCase();
-    if(status === "moved" || status === "retired"){
+    const status = (parsed.employment_status || "unclear").toLowerCase();
+    if(status === "moved" || status === "retired" || status === "unclear"){
       showEmploymentNotice(parsed);
       setStatus("Done — see the notice below before adding this record.");
     } else {
@@ -618,17 +724,25 @@ function employmentNoticeText(p){
   const uni = p.university || "the university you entered";
   const status = (p.employment_status || "").toLowerCase();
   const newAff = (p.current_affiliation || "").trim();
+  const evidence = (p.evidence || "").trim();
+  let text;
   if(status === "retired"){
-    return `${name} no longer appears to work at ${uni} — they likely retired.`;
-  }
-  if(status === "moved"){
-    return newAff
+    text = `${name} no longer appears to work at ${uni} — they likely retired.`;
+  } else if(status === "moved"){
+    text = newAff
       ? `${name} no longer appears to work at ${uni} — they likely now work at ${newAff}.`
       : `${name} no longer appears to work at ${uni}. We couldn't confirm where they went next.`;
+  } else if(status === "unclear"){
+    text = `Couldn't confidently confirm whether ${name} still works at ${uni}.`;
+  } else {
+    text = `Only weak evidence that ${name} still works at ${uni} — worth double-checking.`;
   }
-  return "";
+  return evidence ? `${text} (${evidence})` : text;
 }
 
+// Used for the bio-link path, where employment status only comes out after
+// a full research call already ran — so "continue anyway" just reveals the
+// record that's already been fetched, rather than triggering more research.
 function showEmploymentNotice(p){
   pendingRecord = p;
   document.getElementById("record").classList.remove("show");
@@ -637,13 +751,21 @@ function showEmploymentNotice(p){
   document.getElementById("employmentNotice").classList.add("show");
 }
 
-document.getElementById("continueAnywayBtn").onclick = () => {
+document.getElementById("continueAnywayBtn").onclick = async () => {
   document.getElementById("employmentNotice").classList.remove("show");
-  if(pendingRecord){ populateRecord(pendingRecord); pendingRecord = null; }
+  if(pendingRecord){
+    populateRecord(pendingRecord);
+    pendingRecord = null;
+  } else if(pendingResearchSubject){
+    const { subjectLine } = pendingResearchSubject;
+    pendingResearchSubject = null;
+    await doResearch(subjectLine);
+  }
 };
 document.getElementById("noticeNewSearchBtn").onclick = () => {
   document.getElementById("employmentNotice").classList.remove("show");
   pendingRecord = null;
+  pendingResearchSubject = null;
   resetForm();
 };
 
