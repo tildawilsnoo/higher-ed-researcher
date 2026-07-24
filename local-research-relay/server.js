@@ -64,6 +64,11 @@ async function runQuery(params) {
       allowedTools: ["WebSearch"],
       maxTurns,
       settingSources: [], // isolation mode — ignore any local Claude Code settings
+      // No terminal to answer permission prompts in this headless server —
+      // without this, tool calls hang forever waiting on an approval that
+      // never comes. Scoped to WebSearch only via allowedTools above.
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
     },
   })) {
     if (message.type === "result") {
