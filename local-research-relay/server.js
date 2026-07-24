@@ -47,10 +47,13 @@ async function runQuery(params) {
   const userMessage = params.messages?.[0]?.content ?? "";
 
   // The raw Messages API's web_search `max_uses` doesn't have a direct
-  // equivalent here — maxTurns (agentic round trips) is the closest lever,
-  // so carry the existing budget over with headroom for the final answer.
+  // equivalent here — maxTurns (agentic round trips) is the closest lever.
+  // Each search plus its reasoning step eats a turn on its own, separate
+  // from the turns needed to actually synthesize the answer afterward, so
+  // the old "+3" headroom (max_uses 6 -> 9 turns) was hit exactly and
+  // killed real research runs before they could produce a result.
   const requestedMaxUses = params.tools?.[0]?.max_uses;
-  const maxTurns = requestedMaxUses ? requestedMaxUses + 3 : 10;
+  const maxTurns = requestedMaxUses ? requestedMaxUses * 4 + 10 : 30;
 
   let finalResult = null;
   let errors = [];
