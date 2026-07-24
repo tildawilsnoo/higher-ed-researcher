@@ -540,20 +540,13 @@ async function checkEmployment(name, uni){
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        // Haiku 4.5, not Sonnet: this is a narrow classification call (read
-        // search results, output one JSON verdict), and a wrong verdict here
-        // just surfaces a review notice rather than corrupting saved data —
-        // cuts this call's per-token cost roughly 3x.
-        model: "claude-haiku-4-5",
+        model: "claude-sonnet-4-6",
         max_tokens: 512,
         system: [
           { type: "text", text: EMPLOYMENT_CHECK_SYSTEM_PROMPT, cache_control: { type: "ephemeral", ttl: "1h" } }
         ],
         messages: [{ role: "user", content: `Name: ${name}\nUniversity: ${uni}` }],
-        // Capped at 2 (was 5) — this is meant to be a quick pre-check, not a
-        // second full research pass; keeping its search budget below the
-        // main research call's own budget.
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }]
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]
       })
     });
     const data = await response.json();
@@ -633,7 +626,7 @@ Rules:
   - Do not over-assign — only give someone multiple categories if they truly span multiple distinct fields.${CATEGORIES.length >= 30 ? `
   - This list is already at its target size (${CATEGORIES.length} categories). Do NOT propose a new one under any circumstances — pick the closest existing category instead, even if it's an imperfect fit.` : ""}
 - "dibi_pillar": choose one best fit from this exact controlled list: ${JSON.stringify(PILLARS)}
-- "key_terms": a list of about 25-30 specific research keywords/phrases describing their actual technical work (topics, methods, materials, systems, named programs/tools where relevant), in the house style already used in DIBI's database. Here is a sample of terms already in use, for style reference: ${JSON.stringify(EXISTING_KEY_TERMS)}
+- "key_terms": a list of about 40 specific research keywords/phrases describing their actual technical work (topics, methods, materials, systems, named programs/tools where relevant), in the house style already used in DIBI's database. Here is a sample of terms already in use, for style reference: ${JSON.stringify(EXISTING_KEY_TERMS)}
   - If one of these existing terms genuinely applies to this person, reuse it verbatim rather than writing a near-duplicate in different words.
   - For anything not already covered, write new terms that match the same style: specific and concrete (not generic buzzwords like "innovation" or "research" on their own), title case or lowercase matching how similar existing terms are written, each a short phrase (1-5 words).
   - Order roughly most-to-least central to their work.
@@ -673,11 +666,8 @@ Rules:
         // max_uses caps how many searches Claude can run for one person —
         // without a limit, a thin web presence can trigger many more
         // searches (and much larger accumulated search-result context)
-        // than a well-indexed faculty page needs. Capped at 3 (was 4) as
-        // part of a token-cost pass — each search adds both a query fee and
-        // the injected result text as input tokens, so this is the biggest
-        // lever on this call's cost after the key-terms output trim below.
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }]
+        // than a well-indexed faculty page needs.
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 6 }]
       })
     });
     const data = await response.json();
