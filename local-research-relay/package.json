@@ -1,0 +1,14 @@
+{
+  "name": "dibi-local-research-relay",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Local relay so the DIBI researcher intake tool's AI calls use your Claude subscription seat instead of metered API billing.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest"
+  }
+}

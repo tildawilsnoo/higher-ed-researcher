@@ -135,7 +135,7 @@
       <button class="run-btn" id="runBtn">Research</button>
       <button class="clear-btn" id="clearBtn">Clear form</button>
     </div>
-    <p style="font-size:11px;color:var(--rule-dark);opacity:0.9;margin:6px 0 0;">Each research lookup (employment check + full research) costs roughly $0.10–0.15 in API usage.</p>
+    <p style="font-size:11px;color:var(--rule-dark);opacity:0.9;margin:6px 0 0;">Research runs against your Claude subscription seat via the local relay — make sure it's running (<code>npm start</code> in local-research-relay/).</p>
     <div class="status" id="status"></div>
   </div>
 
@@ -228,11 +228,17 @@
 </div>
 
 <script>
-// Both the AI research call and the Airtable save go through your Cloudflare
-// Worker, which holds your Anthropic key and Airtable token server-side.
-// Nobody using this page — including you — ever sees either secret here.
-// Set this to your worker's URL (see dibi-worker.js for setup).
+// The Airtable save/options/duplicate-check calls go through your Cloudflare
+// Worker, which holds your Airtable token server-side. Set this to your
+// worker's URL (see dibi-worker.js for setup).
 const WORKER_BASE_URL = "https://dibi-airtable-proxy.hec-dash.workers.dev";
+
+// The AI research calls go to a small local relay (see
+// local-research-relay/server.js) instead of the Cloudflare Worker, so they
+// run against your Claude subscription seat's included usage rather than
+// metered API billing. It only runs on your machine — start it with
+// `npm start` in local-research-relay/ before using this page.
+const RESEARCH_BASE_URL = "http://localhost:8787";
 
 // Safety net: expand common abbreviations in case the model slips one in,
 // even though the prompt asks for full names.
@@ -528,9 +534,9 @@ async function verifyEmploymentAndMaybeResearch(name, uni, subjectLine){
 // (treated as "current"/low confidence, i.e. proceed) if the check itself
 // errors, so a broken lookup never blocks research entirely.
 async function checkEmployment(name, uni){
-  if(!WORKER_BASE_URL) return { employment_status: "current", confidence: "low" };
+  if(!RESEARCH_BASE_URL) return { employment_status: "current", confidence: "low" };
   try{
-    const response = await fetch(`${WORKER_BASE_URL}/research`, {
+    const response = await fetch(`${RESEARCH_BASE_URL}/research`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -639,14 +645,14 @@ Rules:
 - Leave a field "" or [] if you cannot find reliable information — do not fabricate.
 - Do not include any text outside the JSON object.`;
 
-  if(!WORKER_BASE_URL){
-    setStatus("Set WORKER_BASE_URL near the top of this file's script first.", true);
+  if(!RESEARCH_BASE_URL){
+    setStatus("Set RESEARCH_BASE_URL near the top of this file's script first.", true);
     btn.disabled = false;
     return;
   }
 
   try{
-    const response = await fetch(`${WORKER_BASE_URL}/research`, {
+    const response = await fetch(`${RESEARCH_BASE_URL}/research`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -702,7 +708,8 @@ Rules:
     }
   } catch(err){
     console.error(err);
-    setStatus("Could not complete research: " + err.message, true);
+    const hint = err instanceof TypeError ? " Is the local research relay running? (npm start in local-research-relay/)" : "";
+    setStatus("Could not complete research: " + err.message + hint, true);
   } finally {
     btn.disabled = false;
   }
