@@ -1004,7 +1004,7 @@ document.getElementById("atSendBtn").onclick = async () => {
   if(cats.length) fields["expertise categories"] = cats;    // multiple select
   if(pillars.length) fields["dibi pillar"] = pillars;        // multiple select
   if(bioLink) fields["bio link"] = bioLink;
-  if(tagLists.keyTerms.length) fields["key terms"] = tagLists.keyTerms;         // multiple select
+  if(tagLists.keyTerms.length) fields["key terms"] = tagLists.keyTerms.join(", ");  // plain text — was multiple select, hit Airtable's 10,000-option cap
   if(tagLists.selfId.length) fields["self identified expertise areas"] = tagLists.selfId; // multiple select
   if(tagLists.location.length) fields["Location based research in"] = tagLists.location;    // multiple select
   if(tagLists.otherTags.length) fields["other tags"] = tagLists.otherTags;      // multiple select

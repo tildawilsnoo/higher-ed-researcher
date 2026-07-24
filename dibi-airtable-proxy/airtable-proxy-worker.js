@@ -58,9 +58,31 @@ export default {
           ? field.options.choices.map(c => c.name)
           : [];
       };
+
+      // "key terms" is a plain text field (comma-separated), not a select —
+      // it grew into a de facto tag cloud and hit Airtable's 10,000-option
+      // cap for select fields, so there's no schema choice list to read here.
+      // Sample one page of records instead and split their text back apart.
+      const sampleUrl = new URL(`https://api.airtable.com/v0/${env.AIRTABLE_BASE_ID}/${env.AIRTABLE_TABLE}`);
+      sampleUrl.searchParams.append("fields[]", "key terms");
+      sampleUrl.searchParams.set("pageSize", "100");
+      const sampleRes = await fetch(sampleUrl.toString(), {
+        headers: { "Authorization": `Bearer ${env.AIRTABLE_TOKEN}` }
+      });
+      const sampleData = await sampleRes.json();
+      const keyTermsSet = new Set();
+      for (const rec of (sampleData.records || [])) {
+        const raw = rec.fields && rec.fields["key terms"];
+        if (!raw) continue;
+        for (const term of String(raw).split(",")) {
+          const t = term.trim();
+          if (t) keyTermsSet.add(t);
+        }
+      }
+
       const result = {
         categories: choicesFor("expertise categories"),
-        keyTerms: choicesFor("key terms"),
+        keyTerms: Array.from(keyTermsSet),
         locations: choicesFor("Location based research in"),
         universities: choicesFor("University")
       };
