@@ -408,7 +408,23 @@ function setStatus(text, isErr){
   s.className = "status" + (isErr ? " err" : "");
 }
 
-document.getElementById("runBtn").onclick = runResearch;
+// Desktop notification when a research run finishes — useful since a lookup
+// can take a while and you may have tabbed away. No-op if the browser
+// doesn't support Notification or the user hasn't granted permission.
+function notifyDone(body){
+  if(!("Notification" in window) || Notification.permission !== "granted") return;
+  if(document.hasFocus()) return; // only bother if you've actually tabbed away
+  new Notification("DIBI researcher lookup done", { body });
+}
+
+document.getElementById("runBtn").onclick = () => {
+  // Ask on the first click (a real user gesture) rather than on page load,
+  // so the permission prompt isn't a surprise before you've done anything.
+  if("Notification" in window && Notification.permission === "default"){
+    Notification.requestPermission();
+  }
+  runResearch();
+};
 document.getElementById("clearBtn").onclick = resetForm;
 
 // Wipe every field, chip, and tag so the next person starts from a clean slate.
@@ -691,15 +707,18 @@ Rules:
     if(status === "moved" || status === "retired" || status === "unclear"){
       showEmploymentNotice(parsed);
       setStatus("Done — see the notice below before adding this record.");
+      notifyDone(`${parsed.name || subjectLine} — review employment status.`);
     } else {
       document.getElementById("employmentNotice").classList.remove("show");
       const catNote = populateRecord(parsed);
       setStatus("Done. Review and edit before saving to the database." + (catNote || ""), !!catNote);
+      notifyDone(`${parsed.name || subjectLine} is ready to review.`);
     }
   } catch(err){
     console.error(err);
     const hint = err instanceof TypeError ? " Is the local research relay running? (npm start in local-research-relay/)" : "";
     setStatus("Could not complete research: " + err.message + hint, true);
+    notifyDone(`Lookup failed: ${err.message}`);
   } finally {
     btn.disabled = false;
   }
