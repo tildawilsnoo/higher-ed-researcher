@@ -1,31 +1,44 @@
-// Local relay so the DIBI researcher intake page's AI research calls run
-// against your Claude subscription seat's included usage instead of
-// metered API billing. Airtable saving stays on the Cloudflare Worker
-// exactly as before (see ../dibi-airtable-proxy) — this only replaces the
-// /research leg, and only runs on your own machine.
+// Local relay so the DIBI researcher intake page's AI research calls can
+// run either against your Claude subscription seat's included usage, or
+// against the metered Claude API — pick with RESEARCH_MODE below. Airtable
+// saving stays on the Cloudflare Worker exactly as before (see
+// ../dibi-airtable-proxy) — this only replaces the /research leg, and only
+// runs on your own machine.
 //
-// This uses the Claude Agent SDK (Claude Code packaged as a library), not
-// the plain Anthropic Messages API SDK — that distinction matters: only
-// Claude Code/Agent SDK traffic draws on your subscription's included
-// usage. Authenticated via whatever account `claude auth login` /
-// `claude setup-token` is currently logged into on this machine — check
-// with `claude auth status` before starting this if you're unsure which
-// seat that is.
+// MODES (set via the RESEARCH_MODE env var; defaults to "agent-sdk"):
 //
-// SETUP (one time):
-//   1. npm install -g @anthropic-ai/claude-code
-//   2. claude setup-token   (log in with the seat you want billed)
-//   3. cd local-research-relay && npm install
+//   agent-sdk (default) — uses the Claude Agent SDK (Claude Code packaged
+//     as a library), NOT the plain Anthropic Messages API SDK — that
+//     distinction matters: only Claude Code/Agent SDK traffic draws on
+//     your subscription's included usage. Authenticated via whatever
+//     account `claude auth login` / `claude setup-token` is currently
+//     logged into on this machine — check with `claude auth status` if
+//     you're unsure which seat that is.
+//     Setup (one time): npm install -g @anthropic-ai/claude-code
+//                        claude setup-token   (log in with the seat to bill)
+//
+//   api — uses the plain Anthropic Messages API SDK directly, billed as
+//     metered API usage. Authenticated via ANTHROPIC_API_KEY (env var), or
+//     an `ant auth login` OAuth profile if that env var is unset.
 //
 // RUN (each time you want to use the tool):
-//   npm start
+//   npm start                      — agent-sdk mode (default)
+//   npm run start:api               — api mode
+//   RESEARCH_MODE=api npm start     — api mode (equivalent, explicit)
 // Leave this running in a terminal, then open index.html as usual — it
 // points its research calls at http://localhost:8787 by default.
 
 import http from "node:http";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import Anthropic from "@anthropic-ai/sdk";
 
 const PORT = 8787;
+const MODE = process.env.RESEARCH_MODE === "api" ? "api" : "agent-sdk";
+
+// Zero-arg client: resolves ANTHROPIC_API_KEY, or falls back to an
+// `ant auth login` OAuth profile, automatically. Only constructed when
+// actually needed (api mode) — agent-sdk mode has no API key requirement.
+const apiClient = MODE === "api" ? new Anthropic() : null;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,7 +50,7 @@ const corsHeaders = {
 // loop and returns the final text result, shaped like a raw Anthropic
 // Messages API response ({content: [{type: "text", text}]}) so index.html's
 // existing response parsing keeps working unchanged.
-async function runQuery(params) {
+async function runQueryViaAgentSDK(params) {
   // index.html sends system as an array of cacheable text blocks — flatten
   // to plain text; Claude Code's own prompt caching handles reuse instead.
   const systemText = Array.isArray(params.system)
@@ -90,6 +103,15 @@ async function runQuery(params) {
   return { content: [{ type: "text", text: finalResult }] };
 }
 
+// api mode: index.html's request body is already shaped exactly like a
+// Messages API call ({model, max_tokens, system, messages, tools}), so it
+// passes straight through — no reshaping needed.
+async function runQueryViaApi(params) {
+  return apiClient.messages.create(params);
+}
+
+const runQuery = MODE === "api" ? runQueryViaApi : runQueryViaAgentSDK;
+
 const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, corsHeaders);
@@ -112,12 +134,17 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { ...corsHeaders, "Content-Type": "application/json" });
     res.end(JSON.stringify(result));
   } catch (err) {
-    res.writeHead(500, { ...corsHeaders, "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: { message: err.message } }));
+    const status = err.status || 500; // Anthropic SDK errors (api mode) carry a real HTTP status
+    res.writeHead(status, { ...corsHeaders, "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: { message: err.message, type: err.type || err.name } }));
   }
 });
 
 server.listen(PORT, () => {
-  console.log(`Research relay listening on http://localhost:${PORT}`);
-  console.log("Using your Claude subscription seat via Claude Code's stored login.");
+  console.log(`Research relay listening on http://localhost:${PORT} (mode: ${MODE})`);
+  console.log(
+    MODE === "api"
+      ? "Using the metered Claude API (ANTHROPIC_API_KEY, or an `ant auth login` profile)."
+      : "Using your Claude subscription seat via Claude Code's stored login."
+  );
 });
