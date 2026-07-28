@@ -387,7 +387,7 @@ function setRelayMode(m){
   document.getElementById("relayModeAgentBtn").classList.toggle("active", m==="agent-sdk");
   document.getElementById("relayModeApiBtn").classList.toggle("active", m==="api");
   document.getElementById("relayModeNote").textContent = m==="api"
-    ? "Research runs against the metered Claude API (billed per use, via the relay's ANTHROPIC_API_KEY) — make sure the local relay is running (npm start in local-research-relay/)."
+    ? "Research runs against the metered Claude API (billed per use, via the relay's ANTHROPIC_API_KEY)."
     : "Research runs against your Claude subscription seat via the local relay — make sure it's running (npm start in local-research-relay/).";
 }
 setRelayMode(relayMode);
