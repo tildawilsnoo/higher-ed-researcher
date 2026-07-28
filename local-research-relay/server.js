@@ -1,11 +1,14 @@
 // Local relay so the DIBI researcher intake page's AI research calls can
 // run either against your Claude subscription seat's included usage, or
-// against the metered Claude API — pick with RESEARCH_MODE below. Airtable
-// saving stays on the Cloudflare Worker exactly as before (see
-// ../dibi-airtable-proxy) — this only replaces the /research leg, and only
-// runs on your own machine.
+// against the metered Claude API. index.html has a toggle for this (top of
+// the research panel) that sends its choice on every request via the
+// X-Relay-Mode header; the RESEARCH_MODE env var below only sets the
+// fallback used when that header is missing. Airtable saving stays on the
+// Cloudflare Worker exactly as before (see ../dibi-airtable-proxy) — this
+// only replaces the /research leg, and only runs on your own machine.
 //
-// MODES (set via the RESEARCH_MODE env var; defaults to "agent-sdk"):
+// MODES (chosen per-request from the page; RESEARCH_MODE env var sets the
+// default, and itself defaults to "agent-sdk"):
 //
 //   agent-sdk (default) — uses the Claude Agent SDK (Claude Code packaged
 //     as a library), NOT the plain Anthropic Messages API SDK — that
@@ -22,28 +25,29 @@
 //     an `ant auth login` OAuth profile if that env var is unset.
 //
 // RUN (each time you want to use the tool):
-//   npm start                      — agent-sdk mode (default)
-//   npm run start:api               — api mode
-//   RESEARCH_MODE=api npm start     — api mode (equivalent, explicit)
+//   npm start
 // Leave this running in a terminal, then open index.html as usual — it
-// points its research calls at http://localhost:8787 by default.
+// points its research calls at http://localhost:8787 by default, and its
+// mode toggle picks agent-sdk vs api per request from there.
 
 import http from "node:http";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import Anthropic from "@anthropic-ai/sdk";
 
 const PORT = 8787;
-const MODE = process.env.RESEARCH_MODE === "api" ? "api" : "agent-sdk";
+const DEFAULT_MODE = process.env.RESEARCH_MODE === "api" ? "api" : "agent-sdk";
 
 // Zero-arg client: resolves ANTHROPIC_API_KEY, or falls back to an
-// `ant auth login` OAuth profile, automatically. Only constructed when
-// actually needed (api mode) — agent-sdk mode has no API key requirement.
-const apiClient = MODE === "api" ? new Anthropic() : null;
+// `ant auth login` OAuth profile, automatically. Constructed unconditionally
+// since the page can request api mode per-request regardless of the
+// server's default mode; credential resolution happens lazily at request
+// time, so this is cheap even when every request ends up using agent-sdk.
+const apiClient = new Anthropic();
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, X-Relay-Mode",
 };
 
 // Runs one research/employment-check request through Claude Code's agent
@@ -110,8 +114,6 @@ async function runQueryViaApi(params) {
   return apiClient.messages.create(params);
 }
 
-const runQuery = MODE === "api" ? runQueryViaApi : runQueryViaAgentSDK;
-
 const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, corsHeaders);
@@ -129,8 +131,10 @@ const server = http.createServer(async (req, res) => {
   for await (const chunk of req) body += chunk;
 
   try {
+    const requestedMode = req.headers["x-relay-mode"];
+    const mode = requestedMode === "api" || requestedMode === "agent-sdk" ? requestedMode : DEFAULT_MODE;
     const params = JSON.parse(body); // { model, max_tokens, system, messages, tools }
-    const result = await runQuery(params);
+    const result = await (mode === "api" ? runQueryViaApi(params) : runQueryViaAgentSDK(params));
     res.writeHead(200, { ...corsHeaders, "Content-Type": "application/json" });
     res.end(JSON.stringify(result));
   } catch (err) {
@@ -141,10 +145,6 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Research relay listening on http://localhost:${PORT} (mode: ${MODE})`);
-  console.log(
-    MODE === "api"
-      ? "Using the metered Claude API (ANTHROPIC_API_KEY, or an `ant auth login` profile)."
-      : "Using your Claude subscription seat via Claude Code's stored login."
-  );
+  console.log(`Research relay listening on http://localhost:${PORT} (default mode: ${DEFAULT_MODE})`);
+  console.log("The page's mode toggle picks agent-sdk (subscription seat) vs api (metered) per request.");
 });

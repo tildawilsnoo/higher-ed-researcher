@@ -131,11 +131,16 @@
       </div>
     </div>
 
+    <div class="mode-toggle" id="relayModeToggle" style="margin-bottom:10px;">
+      <button id="relayModeAgentBtn" class="active">Claude subscription</button>
+      <button id="relayModeApiBtn">Claude API (metered)</button>
+    </div>
+
     <div class="run-row">
       <button class="run-btn" id="runBtn">Research</button>
       <button class="clear-btn" id="clearBtn">Clear form</button>
     </div>
-    <p style="font-size:11px;color:var(--rule-dark);opacity:0.9;margin:6px 0 0;">Research runs against your Claude subscription seat via the local relay — make sure it's running (<code>npm start</code> in local-research-relay/).</p>
+    <p style="font-size:11px;color:var(--rule-dark);opacity:0.9;margin:6px 0 0;" id="relayModeNote"></p>
     <div class="status" id="status"></div>
   </div>
 
@@ -354,6 +359,26 @@ function setMode(m){
   document.getElementById("modeLink").style.display = m==="link" ? "block" : "none";
 }
 
+// Which backend the local relay uses for /research calls: "agent-sdk" (your
+// Claude subscription seat, via the relay's stored Claude Code login) or
+// "api" (the metered Claude API, via the relay's ANTHROPIC_API_KEY / `ant
+// auth login` profile). The relay itself must be running either way — this
+// only tells it, per request, which of its two code paths to use. See
+// local-research-relay/server.js.
+let relayMode = localStorage.getItem("relayMode") || "agent-sdk";
+document.getElementById("relayModeAgentBtn").onclick = () => setRelayMode("agent-sdk");
+document.getElementById("relayModeApiBtn").onclick = () => setRelayMode("api");
+function setRelayMode(m){
+  relayMode = m;
+  localStorage.setItem("relayMode", m);
+  document.getElementById("relayModeAgentBtn").classList.toggle("active", m==="agent-sdk");
+  document.getElementById("relayModeApiBtn").classList.toggle("active", m==="api");
+  document.getElementById("relayModeNote").textContent = m==="api"
+    ? "Research runs against the metered Claude API (billed per use, via the relay's ANTHROPIC_API_KEY) — make sure the local relay is running (npm start in local-research-relay/)."
+    : "Research runs against your Claude subscription seat via the local relay — make sure it's running (npm start in local-research-relay/).";
+}
+setRelayMode(relayMode);
+
 function renderChipGroup(containerId, options, selected, className){
   const el = document.getElementById(containerId);
   el.innerHTML = "";
@@ -554,7 +579,7 @@ async function checkEmployment(name, uni){
   try{
     const response = await fetch(`${RESEARCH_BASE_URL}/research`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Relay-Mode": relayMode },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         max_tokens: 512,
@@ -663,7 +688,7 @@ Rules:
   try{
     const response = await fetch(`${RESEARCH_BASE_URL}/research`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Relay-Mode": relayMode },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         max_tokens: 4096,
