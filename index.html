@@ -131,9 +131,9 @@
       </div>
     </div>
 
-    <div class="mode-toggle" id="relayModeToggle" style="margin-bottom:10px;">
-      <button id="relayModeAgentBtn" class="active">Claude subscription</button>
-      <button id="relayModeApiBtn">Claude API (metered)</button>
+    <div class="mode-toggle" id="relayModeToggle" style="margin-bottom:10px;">   
+      <button id="relayModeApiBtn">Claude API</button>
+      <button id="relayModeAgentBtn" class="active">Computer-relay (just Tilda)</button>
     </div>
 
     <div class="run-row">
@@ -366,6 +366,19 @@ function setMode(m){
 // only tells it, per request, which of its two code paths to use. See
 // local-research-relay/server.js.
 let relayMode = localStorage.getItem("relayMode") || "agent-sdk";
+
+// Claude API mode is metered per token, so it defaults to the cheapest
+// capable model and a smaller search budget. Web search is billed at
+// $10/1,000 searches ($0.01 flat) plus standard token costs for the
+// result content it pulls into context — on Haiku 4.5 ($1/$5 per MTok
+// input/output) that content cost is a small fraction of a cent even for
+// a generously-sized search, so per-search cost stays well under $0.15.
+// The subscription (agent-sdk) path isn't metered per token, so it keeps
+// the stronger model and larger search budget.
+const RESEARCH_MODEL = { "agent-sdk": "claude-sonnet-4-6", "api": "claude-haiku-4-5" };
+const EMPLOYMENT_CHECK_MAX_SEARCHES = { "agent-sdk": 5, "api": 2 };
+const RESEARCH_MAX_SEARCHES = { "agent-sdk": 6, "api": 3 };
+
 document.getElementById("relayModeAgentBtn").onclick = () => setRelayMode("agent-sdk");
 document.getElementById("relayModeApiBtn").onclick = () => setRelayMode("api");
 function setRelayMode(m){
@@ -581,13 +594,13 @@ async function checkEmployment(name, uni){
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Relay-Mode": relayMode },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: RESEARCH_MODEL[relayMode],
         max_tokens: 512,
         system: [
           { type: "text", text: EMPLOYMENT_CHECK_SYSTEM_PROMPT, cache_control: { type: "ephemeral", ttl: "1h" } }
         ],
         messages: [{ role: "user", content: `Name: ${name}\nUniversity: ${uni}` }],
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: EMPLOYMENT_CHECK_MAX_SEARCHES[relayMode] }]
       })
     });
     const data = await response.json();
@@ -690,7 +703,7 @@ Rules:
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Relay-Mode": relayMode },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: RESEARCH_MODEL[relayMode],
         max_tokens: 4096,
         // systemPrompt is identical on every call (it's built from the fixed
         // CATEGORIES/PILLARS/EXISTING_* lists above, not from subjectLine),
@@ -707,8 +720,9 @@ Rules:
         // max_uses caps how many searches Claude can run for one person —
         // without a limit, a thin web presence can trigger many more
         // searches (and much larger accumulated search-result context)
-        // than a well-indexed faculty page needs.
-        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 6 }]
+        // than a well-indexed faculty page needs. Lower in api mode since
+        // it's metered (see RESEARCH_MAX_SEARCHES comment above).
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: RESEARCH_MAX_SEARCHES[relayMode] }]
       })
     });
     const data = await response.json();
