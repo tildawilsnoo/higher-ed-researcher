@@ -253,7 +253,7 @@ export default {
 // record. Whenever a save names a university not already in that table,
 // this looks it up and adds it — so the institutions sheet grows on its
 // own instead of being maintained by hand.
-const INSTITUTIONS_TABLE_ID = "blwk3J6zTVp9JOfe";
+const INSTITUTIONS_TABLE_ID = "tblwk3J6zTVp9JOfe";
 
 async function maybeAddInstitution(env, universityName, city, state) {
   const name = (universityName || "").trim();
