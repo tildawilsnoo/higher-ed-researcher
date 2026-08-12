@@ -48,6 +48,13 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, X-Relay-Mode",
+  // Required for Chrome/Edge's Private Network Access check: when
+  // index.html is loaded from a hosted (https) origin rather than opened
+  // as a local file, the browser preflights any fetch to a private address
+  // (localhost included) and silently fails the request as "Failed to
+  // fetch" unless this is present — even though a plain curl/OPTIONS
+  // check against this server looks completely fine.
+  "Access-Control-Allow-Private-Network": "true",
 };
 
 // Runs one research/employment-check request through Claude Code's agent

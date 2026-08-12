@@ -496,6 +496,8 @@ function resetForm(){
   setStatus("");
   const atStatus = document.getElementById("atStatus");
   if(atStatus){ atStatus.textContent = ""; atStatus.className = "status"; }
+
+  localStorage.removeItem(DRAFT_KEY); // an intentional clear shouldn't come back on the next reload
 }
 
 async function runResearch(){
@@ -887,7 +889,102 @@ function populateRecord(p){
   } else {
     sourcesBlock.style.display = "none";
   }
+  saveDraft(); // capture the freshly-researched record immediately, not just on the next edit
   return catNote;
+}
+
+// Autosaves the in-progress record to localStorage so an accidental back/
+// refresh doesn't throw away a completed (or partially edited) research
+// result — restoreDraft() below puts it all back on the next page load.
+// Only covers the record panel's own state; it deliberately doesn't try to
+// resume mid-flight things like a pending duplicate/employment notice or an
+// in-flight research call — those are cheap to redo, the actual research
+// call is what's worth not losing.
+const DRAFT_KEY = "dibiDraftRecord";
+function collectDraftFields(){
+  return {
+    mode,
+    inName: document.getElementById("inName").value,
+    inUni: document.getElementById("inUni").value,
+    inLink: document.getElementById("inLink").value,
+    recordId: document.getElementById("recordId").textContent,
+    fName: document.getElementById("fName").value,
+    fUni: document.getElementById("fUni").value,
+    fTitle: document.getElementById("fTitle").value,
+    fEmail: document.getElementById("fEmail").value,
+    fPhone: document.getElementById("fPhone").value,
+    fCity: document.getElementById("fCity").value,
+    fState: document.getElementById("fState").value,
+    fCountry: document.getElementById("fCountry").value,
+    fBioLink: document.getElementById("fBioLink").value,
+    catSelected: getSelectedChips("catChips"),
+    pillarSelected: getSelectedChips("pillarChips"),
+    tagLists: {
+      keyTerms: tagLists.keyTerms.slice(),
+      selfId: tagLists.selfId.slice(),
+      location: tagLists.location.slice(),
+      otherTags: tagLists.otherTags.slice()
+    },
+    sources: (record && Array.isArray(record.sources)) ? record.sources : []
+  };
+}
+function saveDraft(){
+  try{ localStorage.setItem(DRAFT_KEY, JSON.stringify(collectDraftFields())); }
+  catch(e){ /* localStorage full/unavailable — not worth surfacing to the user */ }
+}
+let saveDraftTimer = null;
+function scheduleSaveDraft(){
+  clearTimeout(saveDraftTimer);
+  saveDraftTimer = setTimeout(saveDraft, 400);
+}
+// Delegated at the document level so it covers every field/chip/tag
+// without a per-element listener — chip toggles and tag removal are clicks,
+// everything else is an input event.
+document.addEventListener("input", scheduleSaveDraft);
+document.addEventListener("click", scheduleSaveDraft);
+
+function restoreDraft(){
+  let draft;
+  try{ draft = JSON.parse(localStorage.getItem(DRAFT_KEY)); }
+  catch(e){ return; }
+  if(!draft) return;
+
+  setMode(draft.mode === "link" ? "link" : "name");
+  document.getElementById("inName").value = draft.inName || "";
+  document.getElementById("inUni").value = draft.inUni || "";
+  document.getElementById("inLink").value = draft.inLink || "";
+  if(draft.recordId) document.getElementById("recordId").textContent = draft.recordId;
+
+  ["fName","fUni","fTitle","fEmail","fPhone","fCity","fState","fCountry","fBioLink"].forEach(id => {
+    document.getElementById(id).value = draft[id] || "";
+  });
+
+  if(Array.isArray(draft.catSelected) && draft.catSelected.length){
+    CATEGORIES = mergeUnique(CATEGORIES, draft.catSelected);
+    renderChipGroup("catChips", CATEGORIES, draft.catSelected, "");
+  }
+  if(Array.isArray(draft.pillarSelected) && draft.pillarSelected.length){
+    renderChipGroup("pillarChips", PILLARS, draft.pillarSelected, "pillar");
+  }
+
+  if(draft.tagLists){
+    Object.keys(tagLists).forEach(key => {
+      tagLists[key] = Array.isArray(draft.tagLists[key]) ? draft.tagLists[key].slice() : [];
+      renderTagList(key);
+    });
+  }
+
+  const sources = Array.isArray(draft.sources) ? draft.sources.filter(Boolean) : [];
+  const sourcesBlock = document.getElementById("sourcesBlock");
+  if(sources.length){
+    record = { sources }; // only .sources is ever read back off `record` — see sendToAirtable
+    sourcesBlock.style.display = "block";
+    document.getElementById("sourcesList").innerHTML = sources.map(u =>
+      `<div><a href="${u}" target="_blank" rel="noopener">${u}</a></div>`).join("");
+  }
+
+  const hasContent = draft.fName || draft.fUni || draft.catSelected?.length || draft.tagLists?.keyTerms?.length;
+  if(hasContent) setStatus("Restored your draft from before the page reloaded.");
 }
 
 function buildCsvRow(){
@@ -961,6 +1058,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Show the record + Airtable panels immediately with empty fields so the
   // record can be filled in by hand, with or without running research first.
   initEmptyRecord();
+  restoreDraft(); // overwrites the empty state above if a draft was saved before the last reload/back
   loadLiveLists();
 });
 
