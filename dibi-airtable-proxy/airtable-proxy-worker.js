@@ -304,13 +304,26 @@ async function maybeAddInstitution(env, universityName, city, state) {
     const hit = geoData[0];
     const address = hit.address || {};
 
+    // latitude/longitude are Single line text fields, not Number — sent as
+    // explicit strings rather than leaving the number->text conversion to
+    // typecast. Nominatim returns lat/lon as numeric strings already; the
+    // parseFloat round-trip is just to catch a malformed/missing value
+    // before it becomes the literal string "NaN" in the table (a raw NaN
+    // would otherwise serialize to JSON null, which Airtable rejects for a
+    // text field instead of just clearing it — that was the actual error).
+    const lat = parseFloat(hit.lat);
+    const lon = parseFloat(hit.lon);
+    if (isNaN(lat) || isNaN(lon)) {
+      return { added: false, reason: `Nominatim returned no usable coordinates for "${name}"` };
+    }
+
     const instFields = {
       "institution name": name,
       "city": city || address.city || address.town || address.village || "",
       "state": state || address.state || "",
       "Country": address.country || "",
-      "latitude": parseFloat(hit.lat),
-      "longitude": parseFloat(hit.lon)
+      "latitude": String(lat),
+      "longitude": String(lon)
     };
 
     const createRes = await fetch(`https://api.airtable.com/v0/${env.AIRTABLE_BASE_ID}/${INSTITUTIONS_TABLE_ID}`, {
