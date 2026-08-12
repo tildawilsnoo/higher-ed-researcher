@@ -222,8 +222,21 @@ export default {
         },
         body: JSON.stringify({ records: [{ fields }], typecast: true })
       });
-      const data = await airtableRes.text();
-      return new Response(data, {
+      const data = await airtableRes.json();
+
+      // If the main record saved and named a university, make sure that
+      // university is also tracked in the separate Institutions table —
+      // see maybeAddInstitution() below for what "tracked" means and how
+      // its location gets filled in.
+      if (airtableRes.ok) {
+        const uniField = fields["University"];
+        const universityName = Array.isArray(uniField) ? uniField[0] : uniField;
+        data.institution = await maybeAddInstitution(
+          env, universityName, fields["city"], fields["State"]
+        );
+      }
+
+      return new Response(JSON.stringify(data), {
         status: airtableRes.status,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
@@ -232,3 +245,88 @@ export default {
     return new Response("Not found. Use /save, /options, or /check-duplicate.", { status: 404, headers: corsHeaders });
   }
 };
+
+// --- Institutions table auto-add ---
+// The main researcher table names a university per-person, but where that
+// university actually IS (city/state/country/coordinates) is tracked once
+// per school in a separate Institutions table, not on every researcher
+// record. Whenever a save names a university not already in that table,
+// this looks it up and adds it — so the institutions sheet grows on its
+// own instead of being maintained by hand.
+const INSTITUTIONS_TABLE_ID = "blwk3J6zTVp9JOfe";
+
+async function maybeAddInstitution(env, universityName, city, state) {
+  const name = (universityName || "").trim();
+  if (!name) return { added: false, reason: "no university given" };
+
+  try {
+    // Already tracked? Match case/whitespace-insensitively so "MIT " and
+    // "mit" don't both get rows. Scans the whole table the same way
+    // /check-duplicate scans the main one — small enough to be cheap.
+    const listUrl = new URL(`https://api.airtable.com/v0/${env.AIRTABLE_BASE_ID}/${INSTITUTIONS_TABLE_ID}`);
+    listUrl.searchParams.append("fields[]", "institution name");
+    listUrl.searchParams.set("pageSize", "100");
+    const normalizedTarget = name.toLowerCase();
+    let offset;
+    do {
+      if (offset) listUrl.searchParams.set("offset", offset);
+      const listRes = await fetch(listUrl.toString(), {
+        headers: { "Authorization": `Bearer ${env.AIRTABLE_TOKEN}` }
+      });
+      const listData = await listRes.json();
+      if (!listRes.ok) {
+        return { added: false, reason: "Could not check Institutions table: " + (listData.error?.message || listRes.status) };
+      }
+      for (const rec of (listData.records || [])) {
+        const existing = ((rec.fields && rec.fields["institution name"]) || "").toString().trim().toLowerCase();
+        if (existing === normalizedTarget) return { added: false, reason: "already tracked" };
+      }
+      offset = listData.offset;
+    } while (offset);
+
+    // Not tracked — geocode it. Coordinates come from OpenStreetMap's free
+    // Nominatim API (no key needed) rather than asking the AI to recall
+    // lat/long from memory, which risks confidently-wrong coordinates.
+    // Nominatim's usage policy requires a descriptive User-Agent.
+    const query = [name, city, state].filter(Boolean).join(", ");
+    const geoUrl = new URL("https://nominatim.openstreetmap.org/search");
+    geoUrl.searchParams.set("q", query);
+    geoUrl.searchParams.set("format", "json");
+    geoUrl.searchParams.set("limit", "1");
+    geoUrl.searchParams.set("addressdetails", "1");
+    const geoRes = await fetch(geoUrl.toString(), {
+      headers: { "User-Agent": "dibi-researcher-tool/1.0 (internal Northeastern DIBI tool)" }
+    });
+    const geoData = await geoRes.json();
+    if (!geoRes.ok || !Array.isArray(geoData) || !geoData.length) {
+      return { added: false, reason: `Could not geocode "${name}"` };
+    }
+    const hit = geoData[0];
+    const address = hit.address || {};
+
+    const instFields = {
+      "institution name": name,
+      "city": city || address.city || address.town || address.village || "",
+      "state": state || address.state || "",
+      "Country": address.country || "",
+      "latitude": parseFloat(hit.lat),
+      "longitude": parseFloat(hit.lon)
+    };
+
+    const createRes = await fetch(`https://api.airtable.com/v0/${env.AIRTABLE_BASE_ID}/${INSTITUTIONS_TABLE_ID}`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${env.AIRTABLE_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ records: [{ fields: instFields }], typecast: true })
+    });
+    const createData = await createRes.json();
+    if (!createRes.ok) {
+      return { added: false, reason: "Could not create institution record: " + (createData.error?.message || createRes.status) };
+    }
+    return { added: true, fields: instFields };
+  } catch (e) {
+    return { added: false, reason: e.message };
+  }
+}

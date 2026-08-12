@@ -1185,9 +1185,19 @@ document.getElementById("atSendBtn").onclick = async () => {
     if(!res.ok){
       throw new Error((data.error && (data.error.message || data.error.type)) || `HTTP ${res.status}`);
     }
-    setAtStatus("Added to Airtable.");
+    // The worker also checks the separate Institutions table and adds the
+    // university there (geocoded) if it wasn't already tracked — surface
+    // that as a side note rather than letting a geocoding hiccup look like
+    // the main save failed.
+    let institutionNote = "";
+    if(data.institution && data.institution.added){
+      institutionNote = ` Added "${uni}" to the Institutions table.`;
+    } else if(data.institution && !data.institution.added && data.institution.reason !== "already tracked"){
+      institutionNote = ` (Could not add "${uni}" to the Institutions table: ${data.institution.reason})`;
+    }
+    setAtStatus("Added to Airtable." + institutionNote);
     resetForm();
-    setStatus("Added to Airtable — ready for the next person.");
+    setStatus("Added to Airtable — ready for the next person." + institutionNote);
   } catch(err){
     console.error(err);
     setAtStatus("Could not add record: " + err.message, true);
