@@ -201,8 +201,8 @@
     <input type="text" class="addtag-input" id="addLocation" placeholder="+ add place, press Enter">
 
     <h3 class="section">Other tags <span style="font-weight:400;text-transform:none;color:var(--muted);">(manual only — internal DIBI tags, e.g. event attendance)</span></h3>
-    <div id="otherTagsWrap"></div>
-    <input type="text" class="addtag-input" id="addOtherTag" placeholder="+ add tag, press Enter">
+    <div class="chip-group" id="otherTagChips"></div>
+    <input type="text" class="addtag-input" id="addOtherTag" placeholder="+ add new tag, press Enter">
 
     <div id="sourcesBlock" style="display:none;">
       <h3 class="section">Sources consulted</h3>
@@ -287,6 +287,10 @@ const PILLARS = [
   "Manufacturing Innovation","Supply Chain Resilience","Workforce Readiness",
   "Capital Activation","Procurement Agility"
 ];
+// Other tags is manual-only (internal DIBI tags, e.g. event attendance) and
+// has no useful hardcoded seed list — starts empty and loadLiveLists() below
+// fills it from Airtable's "other tags" select options on page load.
+let OTHER_TAGS = [];
 // exact 19-column header/order of the master CSV. Ignored fields stay blank.
 const COLUMNS = ["Name","Title","email","University","expertise categories","dibi pillar",
   "bio link","key terms","other tags","city","State","country","Location based research in",
@@ -409,12 +413,15 @@ function getSelectedChips(containerId){
 }
 
 // Generic tag-list handling: one function set drives key terms, self-identified
-// expertise, location-based research, and other tags.
+// expertise, and location-based research. Other tags used to be here too, but
+// now works like the category/pillar chip-groups instead (see addOtherTag
+// listener below) so its options can be pre-populated from Airtable and
+// clicked rather than always retyped.
 const tagLists = {
-  keyTerms: [], selfId: [], location: [], otherTags: []
+  keyTerms: [], selfId: [], location: []
 };
-const tagWrapId = { keyTerms:"keyTermsWrap", selfId:"selfIdWrap", location:"locationWrap", otherTags:"otherTagsWrap" };
-const tagInputId = { keyTerms:"addKeyTerm", selfId:"addSelfId", location:"addLocation", otherTags:"addOtherTag" };
+const tagWrapId = { keyTerms:"keyTermsWrap", selfId:"selfIdWrap", location:"locationWrap" };
+const tagInputId = { keyTerms:"addKeyTerm", selfId:"addSelfId", location:"addLocation" };
 
 function renderTagList(key){
   const wrap = document.getElementById(tagWrapId[key]);
@@ -436,6 +443,22 @@ Object.keys(tagInputId).forEach(key => {
       renderTagList(key);
     }
   });
+});
+
+// "Other tags" chip-group: same click-to-toggle pattern as expertise
+// categories, pre-populated from Airtable (see loadLiveLists). Typing a new
+// one here and pressing Enter folds it into OTHER_TAGS as an already-selected
+// chip, same as a brand-new expertise category — saving the record then
+// creates it as a real option in Airtable, so it shows up as a clickable
+// chip for everyone on the next page load.
+document.getElementById("addOtherTag").addEventListener("keydown", e => {
+  if(e.key === "Enter" && e.target.value.trim()){
+    const val = e.target.value.trim();
+    OTHER_TAGS = mergeUnique(OTHER_TAGS, [val]);
+    const selected = mergeUnique(getSelectedChips("otherTagChips"), [val]);
+    renderChipGroup("otherTagChips", OTHER_TAGS, selected, "");
+    e.target.value = "";
+  }
 });
 // Backwards-compatible alias used elsewhere in the file.
 function renderKeyTerms(){ renderTagList("keyTerms"); }
@@ -477,6 +500,7 @@ function resetForm(){
   // Chip groups back to nothing selected
   renderChipGroup("catChips", CATEGORIES, [], "");
   renderChipGroup("pillarChips", PILLARS, [], "pillar");
+  renderChipGroup("otherTagChips", OTHER_TAGS, [], "");
 
   // Every tag list emptied and re-rendered
   Object.keys(tagLists).forEach(key => { tagLists[key] = []; renderTagList(key); });
@@ -919,11 +943,11 @@ function collectDraftFields(){
     fBioLink: document.getElementById("fBioLink").value,
     catSelected: getSelectedChips("catChips"),
     pillarSelected: getSelectedChips("pillarChips"),
+    otherTagsSelected: getSelectedChips("otherTagChips"),
     tagLists: {
       keyTerms: tagLists.keyTerms.slice(),
       selfId: tagLists.selfId.slice(),
-      location: tagLists.location.slice(),
-      otherTags: tagLists.otherTags.slice()
+      location: tagLists.location.slice()
     },
     sources: (record && Array.isArray(record.sources)) ? record.sources : []
   };
@@ -966,6 +990,10 @@ function restoreDraft(){
   if(Array.isArray(draft.pillarSelected) && draft.pillarSelected.length){
     renderChipGroup("pillarChips", PILLARS, draft.pillarSelected, "pillar");
   }
+  if(Array.isArray(draft.otherTagsSelected) && draft.otherTagsSelected.length){
+    OTHER_TAGS = mergeUnique(OTHER_TAGS, draft.otherTagsSelected);
+    renderChipGroup("otherTagChips", OTHER_TAGS, draft.otherTagsSelected, "");
+  }
 
   if(draft.tagLists){
     Object.keys(tagLists).forEach(key => {
@@ -997,7 +1025,7 @@ function buildCsvRow(){
     "dibi pillar": getSelectedChips("pillarChips").join(","),
     "bio link": document.getElementById("fBioLink").value,
     "key terms": tagLists.keyTerms.join(","),
-    "other tags": tagLists.otherTags.join(","),
+    "other tags": getSelectedChips("otherTagChips").join(","),
     "city": document.getElementById("fCity").value,
     "State": document.getElementById("fState").value,
     "country": document.getElementById("fCountry").value,
@@ -1099,6 +1127,11 @@ async function loadLiveLists(){
     if(Array.isArray(data.locations) && data.locations.length){
       EXISTING_LOCATIONS = data.locations.slice().sort();
     }
+    if(Array.isArray(data.otherTags) && data.otherTags.length){
+      OTHER_TAGS = data.otherTags.slice().sort();
+      const selected = getSelectedChips("otherTagChips");
+      renderChipGroup("otherTagChips", OTHER_TAGS, selected, "");
+    }
     if(Array.isArray(data.universities) && data.universities.length){
       const list = document.getElementById("universityList");
       list.innerHTML = data.universities.slice().sort()
@@ -1118,11 +1151,11 @@ function initEmptyRecord(){
 
   renderChipGroup("catChips", CATEGORIES, [], "");
   renderChipGroup("pillarChips", PILLARS, [], "pillar");
+  renderChipGroup("otherTagChips", OTHER_TAGS, [], "");
 
   tagLists.keyTerms = [];   renderTagList("keyTerms");
   tagLists.selfId = [];     renderTagList("selfId");
   tagLists.location = [];   renderTagList("location");
-  tagLists.otherTags = [];  renderTagList("otherTags");
 
   document.getElementById("sourcesBlock").style.display = "none";
 }
@@ -1152,6 +1185,7 @@ document.getElementById("atSendBtn").onclick = async () => {
   const phone = document.getElementById("fPhone").value.trim();
   const cats = getSelectedChips("catChips");
   const pillars = getSelectedChips("pillarChips");
+  const otherTags = getSelectedChips("otherTagChips");
 
   if(name) fields["Name"] = name;
   if(title) fields["Title"] = title;
@@ -1163,7 +1197,7 @@ document.getElementById("atSendBtn").onclick = async () => {
   if(tagLists.keyTerms.length) fields["key terms"] = tagLists.keyTerms.join(", ");  // plain text — was multiple select, hit Airtable's 10,000-option cap
   if(tagLists.selfId.length) fields["self identified expertise areas"] = tagLists.selfId; // multiple select
   if(tagLists.location.length) fields["Location based research in"] = tagLists.location;    // multiple select
-  if(tagLists.otherTags.length) fields["other tags"] = tagLists.otherTags;      // multiple select
+  if(otherTags.length) fields["other tags"] = otherTags;                 // multiple select
   if(city) fields["city"] = city;                       // single select
   if(state) fields["State"] = state;                     // single select
   if(country) fields["country"] = country;                 // single select

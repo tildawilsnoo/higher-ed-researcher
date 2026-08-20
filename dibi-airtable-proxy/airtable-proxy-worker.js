@@ -84,7 +84,8 @@ export default {
         categories: choicesFor("expertise categories"),
         keyTerms: Array.from(keyTermsSet),
         locations: choicesFor("Location based research in"),
-        universities: choicesFor("University")
+        universities: choicesFor("University"),
+        otherTags: choicesFor("other tags")
       };
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, "Content-Type": "application/json" }
