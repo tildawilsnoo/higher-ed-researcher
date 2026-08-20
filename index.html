@@ -140,6 +140,9 @@
       <button class="run-btn" id="runBtn">Research</button>
       <button class="clear-btn" id="clearBtn">Clear form</button>
     </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);margin-top:8px;cursor:pointer;">
+      <input type="checkbox" id="skipEmploymentCheck"> Skip employment check (assume still current)
+    </label>
     <p style="font-size:11px;color:var(--rule-dark);opacity:0.9;margin:6px 0 0;" id="relayModeNote"></p>
     <div class="status" id="status"></div>
   </div>
@@ -524,6 +527,14 @@ function resetForm(){
   localStorage.removeItem(DRAFT_KEY); // an intentional clear shouldn't come back on the next reload
 }
 
+// Whether the "Skip employment check" box is ticked — bypasses both the
+// name+university pre-research check (verifyEmploymentAndMaybeResearch) and
+// the post-research notice (in doResearch), for cases where you already
+// know the roster is current and don't want to be interrupted.
+function skipEmploymentCheck(){
+  return document.getElementById("skipEmploymentCheck").checked;
+}
+
 async function runResearch(){
   if(mode === "name"){
     const name = document.getElementById("inName").value.trim();
@@ -535,6 +546,11 @@ async function runResearch(){
     const matches = await checkDuplicates(name, uni);
     if(matches.length){
       showDuplicateNotice(matches, name, uni, subjectLine);
+      return;
+    }
+
+    if(skipEmploymentCheck()){
+      await doResearch(subjectLine);
       return;
     }
 
@@ -583,6 +599,10 @@ document.getElementById("duplicateContinueBtn").onclick = async () => {
   if(!pendingDuplicate) return;
   const { name, uni, subjectLine } = pendingDuplicate;
   pendingDuplicate = null;
+  if(skipEmploymentCheck()){
+    await doResearch(subjectLine);
+    return;
+  }
   setStatus('<span class="spinner"></span>Verifying current employment&hellip;');
   await verifyEmploymentAndMaybeResearch(name, uni, subjectLine);
 };
@@ -769,7 +789,7 @@ Rules:
 
     const parsed = JSON.parse(jsonStr);
     const status = (parsed.employment_status || "unclear").toLowerCase();
-    if(status === "moved" || status === "retired" || status === "unclear"){
+    if(!skipEmploymentCheck() && (status === "moved" || status === "retired" || status === "unclear")){
       showEmploymentNotice(parsed);
       setStatus("Done — see the notice below before adding this record.");
       notifyDone(`${parsed.name || subjectLine} — review employment status.`);
