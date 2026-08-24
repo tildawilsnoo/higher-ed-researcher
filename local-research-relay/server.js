@@ -75,9 +75,11 @@ async function runQueryViaAgentSDK(params) {
   // Each search plus its reasoning step eats a turn on its own, separate
   // from the turns needed to actually synthesize the answer afterward, so
   // the old "+3" headroom (max_uses 6 -> 9 turns) was hit exactly and
-  // killed real research runs before they could produce a result.
+  // killed real research runs before they could produce a result. Bumped
+  // 10 -> 16 to give the added WebFetch step (below) room for its own
+  // fetch-plus-reasoning turn without crowding out the synthesis step.
   const requestedMaxUses = params.tools?.[0]?.max_uses;
-  const maxTurns = requestedMaxUses ? requestedMaxUses * 4 + 10 : 30;
+  const maxTurns = requestedMaxUses ? requestedMaxUses * 4 + 16 : 30;
 
   let finalResult = null;
   let errors = [];
@@ -87,13 +89,21 @@ async function runQueryViaAgentSDK(params) {
     options: {
       model: params.model,
       systemPrompt: systemText,
-      tools: ["WebSearch"],
-      allowedTools: ["WebSearch"],
+      // WebFetch lets Claude load the one profile page it's decided is the
+      // right one (see the matching web_fetch tool in index.html's api-mode
+      // request) instead of relying only on search-snippet text — that's
+      // what catches an email that's visibly on the page but missing from
+      // the indexed snippet. The system prompt tells it to use this
+      // sparingly (one page, not page-hopping), so it's left unbounded
+      // here rather than trying to cap uses directly — the Agent SDK has
+      // no per-tool max_uses, only the overall maxTurns above.
+      tools: ["WebSearch", "WebFetch"],
+      allowedTools: ["WebSearch", "WebFetch"],
       maxTurns,
       settingSources: [], // isolation mode — ignore any local Claude Code settings
       // No terminal to answer permission prompts in this headless server —
       // without this, tool calls hang forever waiting on an approval that
-      // never comes. Scoped to WebSearch only via allowedTools above.
+      // never comes. Scoped to WebSearch/WebFetch only via allowedTools above.
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
     },
@@ -116,9 +126,15 @@ async function runQueryViaAgentSDK(params) {
 
 // api mode: index.html's request body is already shaped exactly like a
 // Messages API call ({model, max_tokens, system, messages, tools}), so it
-// passes straight through — no reshaping needed.
+// passes straight through — no reshaping needed, aside from the beta header
+// below.
 async function runQueryViaApi(params) {
-  return apiClient.messages.create(params);
+  // web_fetch is still a beta tool as of writing — the API 400s without
+  // this header on any request whose tools include it (the employment
+  // check doesn't use web_fetch, so it skips this).
+  const usesWebFetch = (params.tools || []).some(t => t.name === "web_fetch");
+  const options = usesWebFetch ? { headers: { "anthropic-beta": "web-fetch-2025-09-10" } } : undefined;
+  return apiClient.messages.create(params, options);
 }
 
 const server = http.createServer(async (req, res) => {
