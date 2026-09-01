@@ -214,6 +214,20 @@ export default {
         });
       }
 
+      // Make sure the named university is tracked in the separate
+      // Institutions table BEFORE the professor record gets created — see
+      // maybeAddInstitution() below for what "tracked" means and how its
+      // location gets filled in. Deliberately ordered first (this used to
+      // run after the professor save, gated on it succeeding) so the
+      // university row already exists for the professor to be placed under
+      // by the time anyone looks at Airtable, instead of there being a
+      // window — or a failed save — where the professor shows up first.
+      const uniField = fields["University"];
+      const universityName = Array.isArray(uniField) ? uniField[0] : uniField;
+      const institution = await maybeAddInstitution(
+        env, universityName, fields["city"], fields["State"]
+      );
+
       const airtableUrl = `https://api.airtable.com/v0/${env.AIRTABLE_BASE_ID}/${env.AIRTABLE_TABLE}`;
       const airtableRes = await fetch(airtableUrl, {
         method: "POST",
@@ -224,18 +238,7 @@ export default {
         body: JSON.stringify({ records: [{ fields }], typecast: true })
       });
       const data = await airtableRes.json();
-
-      // If the main record saved and named a university, make sure that
-      // university is also tracked in the separate Institutions table —
-      // see maybeAddInstitution() below for what "tracked" means and how
-      // its location gets filled in.
-      if (airtableRes.ok) {
-        const uniField = fields["University"];
-        const universityName = Array.isArray(uniField) ? uniField[0] : uniField;
-        data.institution = await maybeAddInstitution(
-          env, universityName, fields["city"], fields["State"]
-        );
-      }
+      data.institution = institution;
 
       return new Response(JSON.stringify(data), {
         status: airtableRes.status,
