@@ -90,6 +90,23 @@
   .actions button:hover{background:var(--ink);color:#fff;}
   .actions .copied{color:var(--red);font-size:12px;margin-left:2px;align-self:center;}
 
+  .queue-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--rule);
+    font-size:13.5px;}
+  .queue-row:last-child{border-bottom:1px solid var(--rule);}
+  .queue-row.active{background:#FBF7F2;box-shadow:-10px 0 0 #FBF7F2,10px 0 0 #FBF7F2;}
+  .queue-row .qname{flex:1;min-width:0;}
+  .queue-row .qname small{display:block;color:var(--muted);font-size:11.5px;line-height:1.45;margin-top:3px;}
+  .qstatus{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px;
+    letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);white-space:nowrap;}
+  .qstatus.ok{color:var(--ink);font-weight:600;}
+  .qstatus.warn{color:var(--red);}
+  .qbtn{background:#fff;border:1px solid var(--rule-dark);padding:5px 11px;font-size:12px;
+    font-family:inherit;color:var(--ink);cursor:pointer;white-space:nowrap;}
+  .qbtn:hover:not(:disabled){background:var(--ink);color:#fff;border-color:var(--ink);}
+  .qbtn.primary{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .qbtn.primary:hover{background:var(--red);border-color:var(--red);}
+  .qbtn:disabled{opacity:0.45;cursor:default;}
+
   h3.section{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);
     margin:18px 0 8px;font-weight:600;}
   .spinner{display:inline-block;width:10px;height:10px;border:2px solid var(--rule-dark);
@@ -104,12 +121,13 @@
     <h1>Researcher Intake</h1>
     <span class="tag">DIBI · FACULTY DATABASE</span>
   </div>
-  <p class="subhead">Enter a name and university, or paste a bio link, and it researches the person and drafts a record for you. Or skip the research and fill in any of the fields below manually.</p>
+  <p class="subhead">Enter a name and university, or paste a bio link, and it researches the person and drafts a record for you. Paste a whole list to research several people in a row and review them one by one. Or skip the research and fill in any of the fields below manually.</p>
 
   <div class="panel">
     <div class="mode-toggle">
       <button id="modeNameBtn" class="active">Name + university</button>
       <button id="modeLinkBtn">Bio link</button>
+      <button id="modeBatchBtn">List of people</button>
     </div>
 
     <div id="modeName">
@@ -130,6 +148,14 @@
         <input type="text" id="inLink" placeholder="https://engineering.university.edu/people/...">
       </div>
     </div>
+    <div id="modeBatch" style="display:none;">
+      <div class="field-row">
+        <label>One person per line &mdash; &ldquo;Name, University&rdquo; or a bio link</label>
+        <textarea id="inBatch" rows="6" placeholder="Jane Ostrowski, Purdue University
+Alex Rivera, Georgia Institute of Technology
+https://engineering.university.edu/people/someone"></textarea>
+      </div>
+    </div>
 
     <div class="mode-toggle" id="relayModeToggle" style="margin-bottom:10px;">   
       <button id="relayModeApiBtn">Claude API</button>
@@ -145,6 +171,17 @@
     </label>
     <p style="font-size:11px;color:var(--rule-dark);opacity:0.9;margin:6px 0 0;" id="relayModeNote"></p>
     <div class="status" id="status"></div>
+  </div>
+
+  <div class="panel record" id="batchPanel">
+    <h3 class="section" style="margin-top:0;">Queue</h3>
+    <p style="font-size:12.5px;color:var(--muted);margin:0 0 10px;">
+      People are researched one at a time. Each one becomes reviewable as soon as it finishes &mdash; open it, check the record, then add it to Airtable and the next ready one loads automatically.
+    </p>
+    <div id="batchList"></div>
+    <div class="run-row" style="margin-top:16px;">
+      <button class="clear-btn" id="batchClearBtn">Clear queue</button>
+    </div>
   </div>
 
   <div class="panel notice" id="duplicateNotice">
@@ -358,12 +395,15 @@ Rules:
 
 document.getElementById("modeNameBtn").onclick = () => setMode("name");
 document.getElementById("modeLinkBtn").onclick = () => setMode("link");
+document.getElementById("modeBatchBtn").onclick = () => setMode("batch");
 function setMode(m){
   mode = m;
-  document.getElementById("modeNameBtn").classList.toggle("active", m==="name");
-  document.getElementById("modeLinkBtn").classList.toggle("active", m==="link");
-  document.getElementById("modeName").style.display = m==="name" ? "block" : "none";
-  document.getElementById("modeLink").style.display = m==="link" ? "block" : "none";
+  [["modeNameBtn","modeName","name"],["modeLinkBtn","modeLink","link"],["modeBatchBtn","modeBatch","batch"]]
+    .forEach(([btnId, paneId, key]) => {
+      document.getElementById(btnId).classList.toggle("active", m===key);
+      document.getElementById(paneId).style.display = m===key ? "block" : "none";
+    });
+  updateRunButton();
 }
 
 // Which backend the local relay uses for /research calls: "agent-sdk" (your
@@ -491,12 +531,12 @@ document.getElementById("runBtn").onclick = () => {
 };
 document.getElementById("clearBtn").onclick = resetForm;
 
-// Wipe every field, chip, and tag so the next person starts from a clean slate.
-function resetForm(){
-  // Search inputs
-  ["inName","inUni","inLink"].forEach(id => { document.getElementById(id).value = ""; });
-
-  // Drafted record text fields
+// Empties the drafted record itself — fields, chips, tags, sources — while
+// leaving the search inputs, the batch queue, and the panels' visibility
+// alone. Used both by resetForm below and when swapping one queued person's
+// record into the panel for another's (populateRecord only fills blanks, so
+// the panel has to actually be empty first).
+function clearRecordFields(){
   ["fName","fUni","fTitle","fEmail","fPhone","fCity","fState","fCountry","fBioLink"]
     .forEach(id => { document.getElementById(id).value = ""; });
 
@@ -508,18 +548,30 @@ function resetForm(){
   // Every tag list emptied and re-rendered
   Object.keys(tagLists).forEach(key => { tagLists[key] = []; renderTagList(key); });
 
-  // Sources and the record/Airtable panels
   document.getElementById("sourcesBlock").style.display = "none";
   document.getElementById("sourcesList").innerHTML = "";
+  record = null;
+}
+
+// Wipe every field, chip, and tag so the next person starts from a clean
+// slate. Leaves the batch queue itself intact — that has its own clear
+// button — but drops the highlight on whichever row was being reviewed.
+function resetForm(){
+  // Search inputs
+  ["inName","inUni","inLink","inBatch"].forEach(id => { document.getElementById(id).value = ""; });
+
+  clearRecordFields();
+
   document.getElementById("record").classList.remove("show");
   document.getElementById("airtablePanel").classList.remove("show");
   document.getElementById("employmentNotice").classList.remove("show");
   document.getElementById("duplicateNotice").classList.remove("show");
 
-  record = null;
   pendingRecord = null;
   pendingResearchSubject = null;
   pendingDuplicate = null;
+  activeJobId = null;
+  renderBatch();
   setStatus("");
   const atStatus = document.getElementById("atStatus");
   if(atStatus){ atStatus.textContent = ""; atStatus.className = "status"; }
@@ -536,6 +588,10 @@ function skipEmploymentCheck(){
 }
 
 async function runResearch(){
+  if(mode === "batch"){
+    await runBatch();
+    return;
+  }
   if(mode === "name"){
     const name = document.getElementById("inName").value.trim();
     const uni = document.getElementById("inUni").value.trim();
@@ -681,13 +737,11 @@ function showEmploymentPreNotice(name, uni, subjectLine, result){
   setStatus("");
 }
 
-async function doResearch(subjectLine){
-  const btn = document.getElementById("runBtn");
-  btn.disabled = true;
-  setStatus('<span class="spinner"></span>Researching&hellip; this can take a bit while it searches.');
-  document.getElementById("record").classList.remove("show");
-
-  const systemPrompt = `You are a research assistant filling in a faculty/researcher database record for the Defense Industrial Base Institute (DIBI) at Northeastern University.
+// Built fresh per call rather than once at load: it embeds the live
+// CATEGORIES / EXISTING_KEY_TERMS / EXISTING_LOCATIONS lists, which
+// loadLiveLists() replaces asynchronously after the page opens.
+function buildResearchSystemPrompt(){
+  return `You are a research assistant filling in a faculty/researcher database record for the Defense Industrial Base Institute (DIBI) at Northeastern University.
 
 Given a person's name + university, OR a bio link, research them using web search and return ONLY a single JSON object (no markdown fences, no commentary) with this exact shape:
 
@@ -739,69 +793,90 @@ Rules:
 - "sources": list of URLs you actually consulted.
 - Leave a field "" or [] if you cannot find reliable information — do not fabricate.
 - Do not include any text outside the JSON object.`;
+}
 
+// Runs one full research call and returns the parsed record object, or
+// throws. Deliberately free of any UI: doResearch() below drives the
+// single-record panel with it, and the batch runner drives a queue with the
+// very same call, so the two paths can't drift apart.
+async function researchSubject(subjectLine){
   if(!RESEARCH_BASE_URL){
-    setStatus("Set RESEARCH_BASE_URL near the top of this file's script first.", true);
-    btn.disabled = false;
-    return;
+    throw new Error("Set RESEARCH_BASE_URL near the top of this file's script first.");
   }
+  const systemPrompt = buildResearchSystemPrompt();
+
+  const response = await fetch(`${RESEARCH_BASE_URL}/research`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Relay-Mode": relayMode },
+    body: JSON.stringify({
+      model: RESEARCH_MODEL[relayMode],
+      max_tokens: 4096,
+      // systemPrompt is identical on every call (it's built from the fixed
+      // CATEGORIES/PILLARS/EXISTING_* lists above, not from subjectLine),
+      // so it's marked cacheable. Using the 1-hour TTL (instead of the
+      // 5-minute default) because researcher lookups are done one at a
+      // time with review in between, so gaps often exceed 5 minutes.
+      // The write costs more (2x base vs 1.25x), but reads are still
+      // ~10% of normal cost, so it pays off whenever two calls land
+      // within the same hour instead of the same 5-minute window.
+      system: [
+        { type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }
+      ],
+      messages: [{ role: "user", content: subjectLine }],
+      // max_uses caps how many searches Claude can run for one person —
+      // without a limit, a thin web presence can trigger many more
+      // searches (and much larger accumulated search-result context)
+      // than a well-indexed faculty page needs. Lower in api mode since
+      // it's metered (see RESEARCH_MAX_SEARCHES comment above).
+      //
+      // web_fetch lets Claude load the one profile page it's decided is
+      // the right one, instead of only ever seeing search-snippet text —
+      // that's what actually catches an email that's visibly on the page
+      // but missing from the indexed snippet. Kept to max_uses: 2 (meant
+      // to check one specific page, maybe a retry, not go page-hopping)
+      // and max_content_tokens: 4000 (a full page can run 10-25k+ tokens;
+      // this caps the added cost per person to roughly one extra search's
+      // worth even on a large page).
+      tools: [
+        { type: "web_search_20250305", name: "web_search", max_uses: RESEARCH_MAX_SEARCHES[relayMode] },
+        { type: "web_fetch_20250910", name: "web_fetch", max_uses: 2, max_content_tokens: 4000 }
+      ]
+    })
+  });
+  const data = await response.json();
+  if(data.error){ throw new Error(data.error.message || "API error"); }
+
+  const textBlocks = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+  let jsonStr = textBlocks.trim();
+  const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if(fenceMatch) jsonStr = fenceMatch[1].trim();
+  const firstBrace = jsonStr.indexOf("{");
+  const lastBrace = jsonStr.lastIndexOf("}");
+  if(firstBrace === -1 || lastBrace === -1){
+    console.error("Full API response:", data);
+    const preview = textBlocks.slice(0, 300) || "(empty response text)";
+    throw new Error(`No JSON found in response (stop_reason: ${data.stop_reason}). Response started with: "${preview}"`);
+  }
+  return JSON.parse(jsonStr.slice(firstBrace, lastBrace+1));
+}
+
+// A failed fetch to the relay surfaces as a bare TypeError ("Failed to
+// fetch"), which on its own reads like a mystery — the cause is almost
+// always that the relay isn't running, so say so.
+function researchErrorText(err){
+  return err.message + (err instanceof TypeError
+    ? " Is the local research relay running? (npm start in local-research-relay/)"
+    : "");
+}
+
+async function doResearch(subjectLine){
+  const btn = document.getElementById("runBtn");
+  btn.disabled = true;
+  setStatus('<span class="spinner"></span>Researching&hellip; this can take a bit while it searches.');
+  document.getElementById("record").classList.remove("show");
 
   try{
-    const response = await fetch(`${RESEARCH_BASE_URL}/research`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Relay-Mode": relayMode },
-      body: JSON.stringify({
-        model: RESEARCH_MODEL[relayMode],
-        max_tokens: 4096,
-        // systemPrompt is identical on every call (it's built from the fixed
-        // CATEGORIES/PILLARS/EXISTING_* lists above, not from subjectLine),
-        // so it's marked cacheable. Using the 1-hour TTL (instead of the
-        // 5-minute default) because researcher lookups are done one at a
-        // time with review in between, so gaps often exceed 5 minutes.
-        // The write costs more (2x base vs 1.25x), but reads are still
-        // ~10% of normal cost, so it pays off whenever two calls land
-        // within the same hour instead of the same 5-minute window.
-        system: [
-          { type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "1h" } }
-        ],
-        messages: [{ role: "user", content: subjectLine }],
-        // max_uses caps how many searches Claude can run for one person —
-        // without a limit, a thin web presence can trigger many more
-        // searches (and much larger accumulated search-result context)
-        // than a well-indexed faculty page needs. Lower in api mode since
-        // it's metered (see RESEARCH_MAX_SEARCHES comment above).
-        //
-        // web_fetch lets Claude load the one profile page it's decided is
-        // the right one, instead of only ever seeing search-snippet text —
-        // that's what actually catches an email that's visibly on the page
-        // but missing from the indexed snippet. Kept to max_uses: 2 (meant
-        // to check one specific page, maybe a retry, not go page-hopping)
-        // and max_content_tokens: 4000 (a full page can run 10-25k+ tokens;
-        // this caps the added cost per person to roughly one extra search's
-        // worth even on a large page).
-        tools: [
-          { type: "web_search_20250305", name: "web_search", max_uses: RESEARCH_MAX_SEARCHES[relayMode] },
-          { type: "web_fetch_20250910", name: "web_fetch", max_uses: 2, max_content_tokens: 4000 }
-        ]
-      })
-    });
-    const data = await response.json();
-    if(data.error){ throw new Error(data.error.message || "API error"); }
-
-    const textBlocks = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
-    let jsonStr = textBlocks.trim();
-    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if(fenceMatch) jsonStr = fenceMatch[1].trim();
-    const firstBrace = jsonStr.indexOf("{");
-    const lastBrace = jsonStr.lastIndexOf("}");
-    if(firstBrace === -1 || lastBrace === -1){
-      console.error("Full API response:", data);
-      const preview = textBlocks.slice(0, 300) || "(empty response text)";
-      throw new Error(`No JSON found in response (stop_reason: ${data.stop_reason}). Response started with: "${preview}"`);
-    }
-    jsonStr = jsonStr.slice(firstBrace, lastBrace+1);
-
-    const parsed = JSON.parse(jsonStr);
+    const parsed = await researchSubject(subjectLine);
     const status = (parsed.employment_status || "unclear").toLowerCase();
     if(!skipEmploymentCheck() && (status === "moved" || status === "retired" || status === "unclear")){
       showEmploymentNotice(parsed);
@@ -815,13 +890,346 @@ Rules:
     }
   } catch(err){
     console.error(err);
-    const hint = err instanceof TypeError ? " Is the local research relay running? (npm start in local-research-relay/)" : "";
-    setStatus("Could not complete research: " + err.message + hint, true);
+    setStatus("Could not complete research: " + researchErrorText(err), true);
     notifyDone(`Lookup failed: ${err.message}`);
   } finally {
     btn.disabled = false;
   }
 }
+
+// --- Batch mode ---
+// Runs a pasted list of people through exactly the same pipeline as single
+// mode (duplicate check -> employment check -> research), one person at a
+// time, and collects the results in a queue you review and send to Airtable
+// individually. Sequential on purpose: in computer-relay mode each request
+// spins up a full Claude Code run on this machine, and web search is rate
+// limited either way, so running five at once mostly buys throttling.
+//
+// Nothing here blocks the run waiting on you. A likely duplicate or a shaky
+// employment check stops that one person short of the (expensive) research
+// call and flags the row instead, so the rest of the list keeps moving and
+// you decide later with a "Research anyway" button.
+
+const BATCH_KEY = "dibiBatchQueue";
+const BASE_TITLE = document.title;
+let batchJobs = [];       // [{id, label, name, uni, subjectLine, status, flag, error, record}]
+let activeJobId = null;   // queue row currently loaded into the record panel
+let batchRunning = false;
+// Serializes the batch loop against per-row "Research anyway"/"Retry"
+// clicks, so a manual retry can never run a second lookup alongside the run.
+let jobChain = Promise.resolve();
+function runSerial(fn){
+  jobChain = jobChain.catch(() => {}).then(fn);
+  return jobChain;
+}
+
+const JOB_STATUS_LABEL = {
+  queued: "Queued", checking: "Checking", researching: "Researching",
+  ready: "Ready to review", duplicate: "Possible duplicate",
+  employment: "Check employment", failed: "Failed", saved: "Added", invalid: "Can't read line"
+};
+const JOB_STATUS_CLASS = {
+  ready: "ok", saved: "ok", duplicate: "warn", employment: "warn", failed: "warn", invalid: "warn"
+};
+
+// One line per person: "Name, University" (extra commas belong to the
+// university — "Jane Doe, University of California, Berkeley"), a tab or a
+// dash instead of the comma also works, and a bare URL is treated as a bio
+// link exactly like the single-person link mode.
+function parseBatchLines(text){
+  return text.split("\n").map(l => l.trim()).filter(Boolean).map((line, i) => {
+    const job = { id: `${Date.now()}-${i}`, status: "queued", flag: "", dupNote: "", error: "", record: null };
+    if(/^https?:\/\//i.test(line)){
+      job.label = line;
+      job.subjectLine = `Bio link: ${line}`;
+      return job;
+    }
+    const parts = line.split(/\t|,|\s+[-–—]\s+/).map(s => s.trim()).filter(Boolean);
+    if(parts.length < 2){
+      job.label = line;
+      job.status = "invalid";
+      job.flag = 'Needs a university too — write it as "Name, University".';
+      return job;
+    }
+    job.name = parts[0];
+    job.uni = parts.slice(1).join(", ");
+    job.label = `${job.name} — ${job.uni}`;
+    job.subjectLine = `Name: ${job.name}\nUniversity: ${job.uni}`;
+    return job;
+  });
+}
+
+function setJobStatus(job, status){
+  job.status = status;
+  renderBatch();
+  saveBatch();
+}
+
+// The research leg, shared by the batch loop and the per-row retry button.
+async function researchJob(job){
+  setJobStatus(job, "researching");
+  try{
+    const parsed = await researchSubject(job.subjectLine);
+    job.record = parsed;
+    job.error = "";
+    const status = (parsed.employment_status || "unclear").toLowerCase();
+    // Unlike single mode this doesn't hide the record behind a notice — the
+    // research is already paid for, so the row just carries the warning into
+    // review with it.
+    job.flag = (!skipEmploymentCheck() && status !== "current") ? employmentNoticeText(parsed) : "";
+    setJobStatus(job, "ready");
+    notifyDone(`${parsed.name || job.label} is ready to review.`);
+  } catch(err){
+    console.error(err);
+    job.error = researchErrorText(err);
+    setJobStatus(job, "failed");
+    notifyDone(`Lookup failed for ${job.label}: ${err.message}`);
+  }
+}
+
+// The skip flags are what a row's "Research anyway"/"Retry" button means:
+// waving past the gate that stopped this person, without waving past the
+// other one. Overriding a duplicate still runs the employment check, exactly
+// as "Research anyway" does in single mode.
+async function processJob(job, { skipDuplicate = false, skipEmployment = false } = {}){
+  job.error = "";
+  if(!job.name){   // bio-link rows have nothing to check against
+    await researchJob(job);
+    return;
+  }
+
+  if(!skipDuplicate){
+    setJobStatus(job, "checking");
+    const matches = await checkDuplicates(job.name, job.uni);
+    if(matches.length){
+      // Kept separate from job.flag so it still shows once you override it
+      // and the row moves on to research — "ready to review, but check it
+      // isn't already in there" is exactly what you want to see at review.
+      job.dupNote = "Already in the database? " +
+        matches.map(m => `${m.name} — ${m.university} (${m.nameSimilarity}% name match)`).join("; ");
+      setJobStatus(job, "duplicate");
+      return;
+    }
+  }
+
+  if(!skipEmployment && !skipEmploymentCheck()){
+    const result = await checkEmployment(job.name, job.uni);
+    const status = (result.employment_status || "unclear").toLowerCase();
+    const weakCurrent = status === "current" && (result.confidence || "").toLowerCase() === "low";
+    if(status !== "current" || weakCurrent){
+      job.flag = employmentNoticeText({
+        name: job.name,
+        university: job.uni,
+        employment_status: result.employment_status,
+        current_affiliation: result.current_affiliation,
+        evidence: result.evidence
+      });
+      setJobStatus(job, "employment");
+      return;
+    }
+  }
+
+  job.flag = "";
+  await researchJob(job);
+}
+
+// A run that finishes while you're in another tab should still be obvious
+// when you come back, even if the desktop notification never landed (no
+// permission granted, or the page isn't on a secure origin) — so the tab
+// title carries the result until you actually look at it.
+function flagDoneInTitle(text){
+  if(document.hasFocus()){ document.title = BASE_TITLE; return; }
+  document.title = `\u2713 ${text} \u00b7 ${BASE_TITLE}`;
+  window.addEventListener("focus", () => { document.title = BASE_TITLE; }, { once: true });
+}
+
+async function runBatch(){
+  if(batchRunning) return;
+  const parsed = parseBatchLines(document.getElementById("inBatch").value);
+  if(!parsed.length){
+    setStatus('Add at least one line — "Name, University" or a bio link.', true);
+    return;
+  }
+
+  // Re-running the list keeps anything already researched rather than
+  // paying for it twice, so you can add names to the box and press Research
+  // again, or resume a queue that was interrupted by a reload.
+  const carried = new Set();
+  const merged = parsed.map(fresh => {
+    const prev = batchJobs.find(j => j.label === fresh.label && j.status !== "queued" && !carried.has(j));
+    if(prev){ carried.add(prev); return prev; }
+    return fresh;
+  });
+  const dropped = batchJobs.filter(j => j.status === "ready" && !carried.has(j));
+  if(dropped.length && !confirm(
+      `${dropped.length} researched record${dropped.length > 1 ? "s are" : " is"} no longer in the list and will be dropped before being added to Airtable. Continue?`)){
+    return;
+  }
+
+  batchJobs = merged;
+  if(!batchJobs.some(j => j.id === activeJobId)) activeJobId = null;
+  const todo = batchJobs.filter(j => j.status === "queued");
+  renderBatch();
+  saveBatch();
+  if(!todo.length){
+    setStatus("Nothing new to research — every line in the list has already been run.");
+    return;
+  }
+
+  // Set before the chain runs, not inside it: the Run button has to be dead
+  // from the moment of the click, not whenever the queued work gets its turn.
+  batchRunning = true;
+  updateRunButton();
+
+  await runSerial(async () => {
+    renderBatch();
+    let done = 0;
+    try{
+      for(const job of todo){
+        done++;
+        setStatus(`<span class="spinner"></span>Researching ${done} of ${todo.length}: ${job.label}&hellip;`);
+        document.title = `(${done}/${todo.length}) ${BASE_TITLE}`;
+        await processJob(job);
+      }
+    } finally {
+      // Whatever happens, the page can't be left stuck in "running" with a
+      // dead Run button.
+      batchRunning = false;
+      document.title = BASE_TITLE;
+      updateRunButton();
+      renderBatch();
+    }
+
+    const ready = batchJobs.filter(j => j.status === "ready").length;
+    const needsYou = batchJobs.filter(j => ["duplicate","employment","failed","invalid"].includes(j.status)).length;
+    const summary = `Batch done — ${ready} ready to review` +
+      (needsYou ? `, ${needsYou} need${needsYou === 1 ? "s" : ""} a decision from you in the queue.` : ".");
+    setStatus(summary, ready === 0 && needsYou > 0);
+    notifyDone(summary);
+    flagDoneInTitle(`${ready} ready` + (needsYou ? `, ${needsYou} to check` : ""));
+  });
+}
+
+// Loads one finished queue row into the record panel for review. The panel
+// is emptied first: populateRecord only fills blanks, so leftovers from the
+// previous person would otherwise stick.
+function openJob(job){
+  if(!job.record) return;
+  activeJobId = job.id;
+  clearRecordFields();
+  document.getElementById("employmentNotice").classList.remove("show");
+  document.getElementById("duplicateNotice").classList.remove("show");
+  const catNote = populateRecord(job.record);
+  renderBatch();
+  saveBatch();
+  setAtStatus("");
+  const warnings = [job.dupNote, job.flag].filter(Boolean).join(" ");
+  setStatus(`Reviewing ${job.label}.` + (warnings ? " " + warnings : "") + (catNote || ""),
+    !!(warnings || catNote));
+  document.getElementById("record").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function queueButton(label, onClick, { primary = false, disabled = false } = {}){
+  const b = document.createElement("button");
+  b.className = "qbtn" + (primary ? " primary" : "");
+  b.textContent = label;
+  b.disabled = disabled;
+  b.onclick = onClick;
+  return b;
+}
+
+function renderBatch(){
+  const panel = document.getElementById("batchPanel");
+  const list = document.getElementById("batchList");
+  if(!batchJobs.length){
+    panel.classList.remove("show");
+    list.innerHTML = "";
+    return;
+  }
+  panel.classList.add("show");
+  list.innerHTML = "";
+
+  batchJobs.forEach((job, i) => {
+    const row = document.createElement("div");
+    row.className = "queue-row" + (job.id === activeJobId ? " active" : "");
+
+    const name = document.createElement("div");
+    name.className = "qname";
+    name.textContent = `${i + 1}. ${job.label}`;
+    const note = [job.dupNote, job.flag, job.error].filter(Boolean).join(" · ");
+    if(note){
+      const small = document.createElement("small");
+      small.textContent = note;
+      name.appendChild(small);
+    }
+    row.appendChild(name);
+
+    const status = document.createElement("span");
+    status.className = "qstatus " + (JOB_STATUS_CLASS[job.status] || "");
+    if(job.status === "checking" || job.status === "researching"){
+      status.innerHTML = '<span class="spinner"></span>';
+    }
+    status.appendChild(document.createTextNode(JOB_STATUS_LABEL[job.status] || job.status));
+    row.appendChild(status);
+
+    // Review stays live during a run — that's the point of the queue, you
+    // work through finished people while the rest are still going. Anything
+    // that starts another lookup waits for the run to finish.
+    if(job.record && job.status !== "saved"){
+      row.appendChild(queueButton(job.id === activeJobId ? "Reopen" : "Review", () => openJob(job), { primary: job.status === "ready" }));
+    }
+    if(["duplicate","employment","failed"].includes(job.status)){
+      const skips = job.status === "duplicate"
+        ? { skipDuplicate: true }                          // employment still gets checked
+        : { skipDuplicate: true, skipEmployment: true };   // both gates already cleared
+      row.appendChild(queueButton(job.status === "failed" ? "Retry" : "Research anyway",
+        () => runSerial(() => processJob(job, skips)), { disabled: batchRunning }));
+    }
+    list.appendChild(row);
+  });
+}
+
+// The queue outlives a reload — a five-person run is too much work to lose
+// to an accidental refresh. In-flight rows come back as "queued" so pressing
+// Research again picks up where it left off.
+function saveBatch(){
+  try{
+    localStorage.setItem(BATCH_KEY, JSON.stringify({
+      jobs: batchJobs,
+      activeJobId,
+      text: document.getElementById("inBatch").value
+    }));
+  } catch(e){ /* localStorage full/unavailable — not worth surfacing */ }
+}
+
+function restoreBatch(){
+  let saved;
+  try{ saved = JSON.parse(localStorage.getItem(BATCH_KEY)); }
+  catch(e){ return; }
+  if(!saved || !Array.isArray(saved.jobs) || !saved.jobs.length) return;
+  batchJobs = saved.jobs.map(j =>
+    (j.status === "checking" || j.status === "researching") ? { ...j, status: "queued" } : j);
+  activeJobId = saved.activeJobId || null;
+  if(saved.text) document.getElementById("inBatch").value = saved.text;
+  renderBatch();
+  if(batchJobs.some(j => j.status === "queued")) setMode("batch");
+}
+
+function updateRunButton(){
+  const btn = document.getElementById("runBtn");
+  btn.textContent = mode === "batch"
+    ? (batchRunning ? "Researching…" : "Research list")
+    : "Research";
+  btn.disabled = batchRunning;
+}
+
+document.getElementById("batchClearBtn").onclick = () => {
+  if(batchRunning) return;
+  batchJobs = [];
+  activeJobId = null;
+  renderBatch();
+  localStorage.removeItem(BATCH_KEY);
+};
 
 // Fill a text input only if the user hasn't already typed something there.
 function fillIfEmpty(id, value){
@@ -1007,7 +1415,7 @@ function restoreDraft(){
   catch(e){ return; }
   if(!draft) return;
 
-  setMode(draft.mode === "link" ? "link" : "name");
+  setMode(["link","batch"].includes(draft.mode) ? draft.mode : "name");
   document.getElementById("inName").value = draft.inName || "";
   document.getElementById("inUni").value = draft.inUni || "";
   document.getElementById("inLink").value = draft.inLink || "";
@@ -1121,6 +1529,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // record can be filled in by hand, with or without running research first.
   initEmptyRecord();
   restoreDraft(); // overwrites the empty state above if a draft was saved before the last reload/back
+  restoreBatch(); // ...and brings back the batch queue that draft may belong to
   loadLiveLists();
 });
 
@@ -1263,9 +1672,35 @@ document.getElementById("atSendBtn").onclick = async () => {
     } else if(data.institution && !data.institution.added && data.institution.reason !== "already tracked"){
       institutionNote = ` (Could not add "${uni}" to the Institutions table: ${data.institution.reason})`;
     }
-    setAtStatus("Added to Airtable." + institutionNote);
-    resetForm();
-    setStatus("Added to Airtable — ready for the next person." + institutionNote);
+    // In batch mode the queue is the thing that shouldn't be cleared — mark
+    // this person off, empty the record panel, and pull up the next one
+    // that's finished researching so you can keep reviewing without
+    // hunting for it.
+    const savedJob = activeJobId ? batchJobs.find(j => j.id === activeJobId) : null;
+    if(savedJob){
+      savedJob.status = "saved";
+      savedJob.flag = "";
+      savedJob.dupNote = "";
+      activeJobId = null;
+      clearRecordFields();
+      localStorage.removeItem(DRAFT_KEY);
+      renderBatch();
+      saveBatch();
+      const next = batchJobs.find(j => j.status === "ready");
+      if(next){
+        openJob(next);
+        setAtStatus(`Added ${savedJob.label}.${institutionNote} Next one is loaded above.`);
+      } else {
+        const left = batchJobs.filter(j => j.status !== "saved" && j.status !== "invalid").length;
+        setAtStatus("Added to Airtable." + institutionNote);
+        setStatus(`Added ${savedJob.label}.` + institutionNote +
+          (left ? ` ${left} row${left === 1 ? "" : "s"} in the queue still need a decision.` : " Queue complete."));
+      }
+    } else {
+      setAtStatus("Added to Airtable." + institutionNote);
+      resetForm();
+      setStatus("Added to Airtable — ready for the next person." + institutionNote);
+    }
   } catch(err){
     console.error(err);
     setAtStatus("Could not add record: " + err.message, true);
