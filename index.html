@@ -57,6 +57,12 @@
     color:var(--muted);margin-top:12px;min-height:16px;}
   .status.err{color:var(--red);}
 
+  .find-row{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule-dark);}
+  .find-row:last-child{border-bottom:none;}
+  .find-row input[type=checkbox]{margin-top:10px;}
+  .find-row .find-body{flex:1;}
+  .find-row .find-why{font-size:12px;color:var(--muted);margin-top:4px;}
+
   .record{display:none;}
   .record.show{display:block;}
   .notice{display:none;}
@@ -128,6 +134,7 @@
       <button id="modeNameBtn" class="active">Name + university</button>
       <button id="modeLinkBtn">Bio link</button>
       <button id="modeBatchBtn">List of people</button>
+      <button id="modeFindBtn">Find at a university</button>
     </div>
 
     <div id="modeName">
@@ -154,6 +161,19 @@
         <textarea id="inBatch" rows="6" placeholder="Jane Ostrowski, Purdue University
 Alex Rivera, Georgia Institute of Technology
 https://engineering.university.edu/people/someone"></textarea>
+      </div>
+    </div>
+    <div id="modeFind" style="display:none;">
+      <div class="field-row">
+        <label>University &mdash; finds the 5 most DIBI-relevant current researchers there</label>
+        <input type="text" id="inFindUni" list="universityList" placeholder="e.g. University of Michigan">
+      </div>
+      <div id="findResults" style="display:none;margin-bottom:12px;">
+        <p style="font-size:12.5px;color:var(--muted);margin:0 0 6px;">Untick anyone you don't want, fix a name if it's off, then send them to the queue.</p>
+        <div id="findList"></div>
+        <div class="run-row" style="margin-top:10px;">
+          <button class="clear-btn" id="findSendBtn">Research selected</button>
+        </div>
       </div>
     </div>
 
@@ -396,9 +416,10 @@ Rules:
 document.getElementById("modeNameBtn").onclick = () => setMode("name");
 document.getElementById("modeLinkBtn").onclick = () => setMode("link");
 document.getElementById("modeBatchBtn").onclick = () => setMode("batch");
+document.getElementById("modeFindBtn").onclick = () => setMode("find");
 function setMode(m){
   mode = m;
-  [["modeNameBtn","modeName","name"],["modeLinkBtn","modeLink","link"],["modeBatchBtn","modeBatch","batch"]]
+  [["modeNameBtn","modeName","name"],["modeLinkBtn","modeLink","link"],["modeBatchBtn","modeBatch","batch"],["modeFindBtn","modeFind","find"]]
     .forEach(([btnId, paneId, key]) => {
       document.getElementById(btnId).classList.toggle("active", m===key);
       document.getElementById(paneId).style.display = m===key ? "block" : "none";
@@ -590,6 +611,10 @@ function skipEmploymentCheck(){
 async function runResearch(){
   if(mode === "batch"){
     await runBatch();
+    return;
+  }
+  if(mode === "find"){
+    await findCandidates();
     return;
   }
   if(mode === "name"){
@@ -1110,6 +1135,137 @@ async function runBatch(){
   });
 }
 
+// --- Find mode ---
+// University in, 5 candidate names out (same prompt as the standalone
+// "DIBI researcher finder" artifact), shown as a checklist you edit and
+// approve. Approved names are appended to the batch list and run through
+// runBatch, so they get the same duplicate check -> employment check ->
+// research pipeline as a pasted list.
+
+const DIBI_FOCUS = "workforce development, advanced manufacturing, supply chain resilience, procurement agility, capital activation, defense industrial base and maritime/shipbuilding strength, and broader U.S. national security industrial policy";
+
+const FIND_SYSTEM_PROMPT = `You are helping build a contact database of researchers relevant to the Defense Industrial Base Institute (DIBI) at Northeastern University. DIBI's focus areas are: ${DIBI_FOCUS}.
+
+Using web search, identify the TOP 5 current faculty/researchers at the university named in the user message whose work is most relevant to DIBI's focus areas. Weigh two factors: (1) how closely their research expertise matches DIBI's focus areas, and (2) their general prominence as a researcher (citation record, endowed positions, major grants/awards, leadership roles, national visibility).
+
+CRITICAL — current employment verification: For each candidate, confirm they are STILL an active faculty member/researcher at that university as of today, using the university's own faculty/department directory page, lab page, or similarly authoritative university-hosted source — not just an old news article or paper byline. If you cannot confirm current employment from a university-hosted source, exclude them and find another candidate.
+
+Search for current information — do not rely on memory alone.
+
+Respond with ONLY a raw JSON array (no markdown code fences, no commentary) of exactly 5 objects, each with exactly these keys:
+- "name": full name only.
+- "title": their current title/department, short (e.g. "Professor, Industrial Engineering").
+- "why": one short sentence on why they're relevant to DIBI.
+If you cannot find 5 verified candidates, return as many as you found.`;
+
+// Each candidate needs its own employment-verification lookup on top of the
+// relevance searching, so this gets a bigger budget than one person's research.
+const FIND_MAX_SEARCHES = { "agent-sdk": 10, "api": 5 };
+
+let findRunning = false;
+let findUni = "";
+
+async function findCandidates(){
+  const uni = document.getElementById("inFindUni").value.trim();
+  if(!uni){ setStatus("Enter a university first.", true); return; }
+  if(!RESEARCH_BASE_URL){ setStatus("Set RESEARCH_BASE_URL near the top of this file's script first.", true); return; }
+
+  findRunning = true;
+  updateRunButton();
+  document.getElementById("findResults").style.display = "none";
+  setStatus(`<span class="spinner"></span>Looking up researchers at ${uni.replace(/</g, "&lt;")}&hellip; this checks each one is still there, so it takes a while.`);
+
+  try{
+    const response = await fetch(`${RESEARCH_BASE_URL}/research`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Relay-Mode": relayMode },
+      body: JSON.stringify({
+        model: RESEARCH_MODEL[relayMode],
+        max_tokens: 2048,
+        system: [
+          { type: "text", text: FIND_SYSTEM_PROMPT, cache_control: { type: "ephemeral", ttl: "1h" } }
+        ],
+        messages: [{ role: "user", content: `University: ${uni}` }],
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: FIND_MAX_SEARCHES[relayMode] }]
+      })
+    });
+    const data = await response.json();
+    if(data.error){ throw new Error(data.error.message || "API error"); }
+
+    const textBlocks = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+    let jsonStr = textBlocks.trim();
+    const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if(fenceMatch) jsonStr = fenceMatch[1].trim();
+    const firstBracket = jsonStr.indexOf("[");
+    const lastBracket = jsonStr.lastIndexOf("]");
+    if(firstBracket === -1 || lastBracket === -1){
+      console.error("Full API response:", data);
+      throw new Error("Could not read a list from the response. Try again, or try a more specific university name.");
+    }
+    const people = JSON.parse(jsonStr.slice(firstBracket, lastBracket + 1)).filter(p => p && p.name);
+    if(!people.length) throw new Error("No researcher names found for that university.");
+
+    findUni = uni;
+    renderFindResults(people);
+    setStatus(`Found ${people.length} at ${uni.replace(/</g, "&lt;")}. Review them below, then press Research selected.`);
+    notifyDone(`Found ${people.length} researchers at ${uni}.`);
+  } catch(err){
+    console.error(err);
+    setStatus("Could not find researchers: " + researchErrorText(err), true);
+  } finally {
+    findRunning = false;
+    updateRunButton();
+  }
+}
+
+function renderFindResults(people){
+  const list = document.getElementById("findList");
+  list.innerHTML = "";
+  people.forEach(p => {
+    const row = document.createElement("label");
+    row.className = "find-row";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = true;
+    const body = document.createElement("div");
+    body.className = "find-body";
+    const name = document.createElement("input");
+    name.type = "text";
+    name.value = p.name;
+    body.appendChild(name);
+    const why = [p.title, p.why].filter(Boolean).join(" — ");
+    if(why){
+      const note = document.createElement("div");
+      note.className = "find-why";
+      note.textContent = why;
+      body.appendChild(note);
+    }
+    row.append(box, body);
+    list.appendChild(row);
+  });
+  document.getElementById("findResults").style.display = "block";
+}
+
+// Appends the ticked names to the batch list (rather than replacing it, so
+// anything already researched there isn't dropped) and starts the run.
+document.getElementById("findSendBtn").onclick = () => {
+  if(batchRunning) return;
+  const picked = [...document.querySelectorAll("#findList .find-row")]
+    .filter(row => row.querySelector("input[type=checkbox]").checked)
+    // Commas would be read as the Name/University separator by parseBatchLines.
+    .map(row => row.querySelector("input[type=text]").value.replace(/,/g, " ").trim())
+    .filter(Boolean);
+  if(!picked.length){ setStatus("Tick at least one name to research.", true); return; }
+
+  const batchBox = document.getElementById("inBatch");
+  const existing = batchBox.value.trim();
+  const lines = picked.map(n => `${n}, ${findUni}`);
+  batchBox.value = (existing ? existing + "\n" : "") + lines.join("\n");
+  document.getElementById("findResults").style.display = "none";
+  setMode("batch");
+  runBatch();
+};
+
 // Loads one finished queue row into the record panel for review. The panel
 // is emptied first: populateRecord only fills blanks, so leftovers from the
 // previous person would otherwise stick.
@@ -1219,8 +1375,10 @@ function updateRunButton(){
   const btn = document.getElementById("runBtn");
   btn.textContent = mode === "batch"
     ? (batchRunning ? "Researching…" : "Research list")
-    : "Research";
-  btn.disabled = batchRunning;
+    : mode === "find"
+      ? (findRunning ? "Finding…" : "Find 5 researchers")
+      : "Research";
+  btn.disabled = batchRunning || findRunning;
 }
 
 document.getElementById("batchClearBtn").onclick = () => {
